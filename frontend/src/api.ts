@@ -30,7 +30,9 @@ export type ApiErrorKind = 'http' | 'network';
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message = 'Не удалось выполнить действие. Попробуйте ещё раз.',
-    public readonly code?: string, public readonly requestId?: string, public readonly kind: ApiErrorKind = 'http') { super(message); }
+    public readonly code?: string, public readonly requestId?: string, public readonly kind: ApiErrorKind = 'http',
+    /** For a version conflict: the record as it is on the server now (unvalidated JSON). */
+    public readonly current?: unknown) { super(message); }
 
   /** Short reference to find the request in the server log (the full id is logged as request=...). */
   get reference(): string | undefined { return this.requestId?.slice(0, 8); }
@@ -41,18 +43,19 @@ export function describeError(error: unknown, fallback: string): string {
   return error.reference ? `${error.message} Код обращения: ${error.reference}.` : error.message;
 }
 
-type Problem = { title?: string; code?: string; requestId?: string };
+type Problem = { title?: string; code?: string; requestId?: string; current?: unknown };
 
 async function readProblem(response: Response): Promise<Problem> {
   const header = response.headers.get('X-Request-Id') ?? undefined;
   try {
     const payload: unknown = await response.json();
     if (payload && typeof payload === 'object') {
-      const { title, code, requestId } = payload as Record<string, unknown>;
+      const { title, code, requestId, current } = payload as Record<string, unknown>;
       return {
         title: typeof title === 'string' && title.length <= 300 ? title : undefined,
         code: typeof code === 'string' && code.length <= 64 ? code : undefined,
         requestId: typeof requestId === 'string' && /^[0-9a-f]{8,64}$/.test(requestId) ? requestId : header,
+        current: current && typeof current === 'object' ? current : undefined,
       };
     }
   }
@@ -164,7 +167,7 @@ async function execute<T>(url: string, method: string, headers: Record<string, s
       // Without a recognised server answer a failed write may still have been applied.
       const message = problem.title ?? (save && response.status >= 500
         ? 'Сервер не подтвердил сохранение. Обновите список и проверьте изменения, прежде чем повторять.' : undefined);
-      throw new ApiError(response.status, message, problem.code, problem.requestId);
+      throw new ApiError(response.status, message, problem.code, problem.requestId, 'http', problem.current);
     }
   } finally { deadline.dispose(); }
 }

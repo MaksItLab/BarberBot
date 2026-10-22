@@ -9,9 +9,30 @@ type Summary = { id: string; name: string; brandName: string; isVisible: boolean
 type ProductPage = { items: Summary[]; page: number; pageSize: number; hasMore: boolean };
 type DraftVariant = { key: string; id?: string; volume: string; size: string; shade: string; price: string; isVisible: boolean };
 const newVariant = (): DraftVariant => ({ key: crypto.randomUUID(), volume: '', size: '', shade: '', price: '', isVisible: true });
+const toDraft = (variant: Variant): DraftVariant => ({
+  key: variant.id, id: variant.id, volume: variant.volume ?? '', size: variant.size ?? '', shade: variant.shade ?? '',
+  price: String(variant.priceRub), isVisible: variant.isVisible,
+});
 
-function ProductEditor({ value, brands, types, onSaved, onClose }: {
-  value: AdminProduct | null; brands: Brand[]; types: CosmeticType[]; onSaved: (product: AdminProduct) => void; onClose: () => void;
+/** What another admin changed between the version this form started from and the current one. */
+function changedFields(from: AdminProduct, to: AdminProduct): string[] {
+  const fields: [string, boolean][] = [
+    ['название', from.name !== to.name], ['описание', from.description !== to.description],
+    ['бренд', from.brandId !== to.brandId], ['тип', from.typeId !== to.typeId],
+    ['изображение', from.imagePath !== to.imagePath], ['видимость товара', from.isVisible !== to.isVisible],
+    ['варианты', JSON.stringify(from.variants) !== JSON.stringify(to.variants)],
+  ];
+  return fields.filter(([, changed]) => changed).map(([label]) => label);
+}
+
+function isProduct(value: unknown, id: string): value is AdminProduct {
+  const product = value as Partial<AdminProduct> | undefined;
+  return product?.id === id && typeof product.version === 'string' && Array.isArray(product.variants);
+}
+
+function ProductEditor({ value, brands, types, onSaved, onReplace, onClose }: {
+  value: AdminProduct | null; brands: Brand[]; types: CosmeticType[]; onSaved: (product: AdminProduct) => void;
+  onReplace: (product: AdminProduct) => void; onClose: () => void;
 }) {
   const [name, setName] = useState(value?.name ?? '');
   const [description, setDescription] = useState(value?.description ?? '');
@@ -19,10 +40,10 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
   const [typeId, setTypeId] = useState(value?.typeId ?? types[0]?.id ?? '');
   const [imagePath, setImagePath] = useState(value?.imagePath ?? '');
   const [visible, setVisible] = useState(value?.isVisible ?? false);
-  const [variants, setVariants] = useState<DraftVariant[]>(value ? value.variants.map(variant => ({
-    key: variant.id, id: variant.id, volume: variant.volume ?? '', size: variant.size ?? '', shade: variant.shade ?? '',
-    price: String(variant.priceRub), isVisible: variant.isVisible,
-  })) : [newVariant()]);
+  const [variants, setVariants] = useState<DraftVariant[]>(value ? value.variants.map(toDraft) : [newVariant()]);
+  // The version this form's changes apply to; replaced only by an explicit choice after a conflict.
+  const [base, setBase] = useState(value);
+  const [conflict, setConflict] = useState<AdminProduct | null>(null);
   // saving → saved (parent) | failed (message) | checking → saved | not saved | unknown (check again)
   const [phase, setPhase] = useState<'editing' | 'saving' | 'checking' | 'unknown'>('editing');
   const saving = phase === 'saving' || phase === 'checking';
@@ -64,7 +85,7 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
     setPhase('saving'); setMessage('');
     try {
       const result = await authorizedJson<AdminProduct>(`/api/admin/products${value ? `/${value.id}` : ''}`, value ? 'PUT' : 'POST', {
-        name, description, brandId, typeId, imagePath, isVisible: visible, version: value?.version ?? null,
+        name, description, brandId, typeId, imagePath, isVisible: visible, version: base?.version ?? null,
         variants: variants.map(variant => ({ id: variant.id ?? null, volume: variant.volume, size: variant.size, shade: variant.shade,
           priceRub: Number(variant.price.trim().replace(',', '.')), isVisible: variant.isVisible })),
       }, controller.signal, saveKey.current);
@@ -73,8 +94,45 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
       if (controller.signal.aborted) return;
       // "Saved" is shown only after confirmation; an unknown outcome is checked instead of being reported as a failure.
       if (isUnknownOutcome(error)) { await check(controller); return; }
-      setPhase('editing'); setMessage(errorText(error));
+      setPhase('editing');
+      if (value && error instanceof ApiError && error.code === 'conflict' && isProduct(error.current, value.id)) {
+        setConflict(error.current); setMessage(''); return;
+      }
+      setMessage(errorText(error));
     }
+  }
+  /**
+   * Three-way merge onto the new version: a field this admin did not touch takes the other admin's value,
+   * a field this admin changed keeps the typed value. Saving stays an explicit action.
+   */
+  function applyMine(current: AdminProduct) {
+    if (!base) return;
+    const overwritten: string[] = [];
+    const pick = <T,>(mine: T, original: T, theirs: T, label: string, set: (value: T) => void) => {
+      if (mine === original) set(theirs);
+      else if (theirs !== original && theirs !== mine) overwritten.push(label);
+    };
+    pick(name, base.name, current.name, 'название', setName);
+    pick(description, base.description, current.description, 'описание', setDescription);
+    pick(brandId, base.brandId, current.brandId, 'бренд', setBrandId);
+    pick(typeId, base.typeId, current.typeId, 'тип', setTypeId);
+    pick(imagePath, base.imagePath ?? '', current.imagePath ?? '', 'изображение', setImagePath);
+    pick(visible, base.isVisible, current.isVisible, 'видимость товара', setVisible);
+    const same = (row: DraftVariant, variant: Variant) => JSON.stringify({ ...row, key: '' }) === JSON.stringify({ ...toDraft(variant), key: '' });
+    setVariants([
+      ...variants.map((row, index) => {
+        const original = base.variants.find(variant => variant.id === row.id), theirs = current.variants.find(variant => variant.id === row.id);
+        if (!original || !theirs) return row;
+        if (same(row, original)) return toDraft(theirs);
+        if (!same(toDraft(theirs), original) && !same(row, theirs)) overwritten.push(`вариант ${index + 1}`);
+        return row;
+      }),
+      // Variants added by the other admin cannot be dropped: the server keeps existing variants.
+      ...current.variants.filter(variant => !variants.some(row => row.id === variant.id)).map(toDraft),
+    ]);
+    setBase(current); setConflict(null);
+    setMessage(`Изменения коллеги подставлены в поля, которые вы не меняли.${overwritten.length
+      ? ` Ваши правки заменят его значения: ${overwritten.join(', ')}.` : ''} Проверьте форму и нажмите «Сохранить товар».`);
   }
   return <form className="admin-form product-editor" onSubmit={event => void save(event)}>
     <fieldset disabled={saving}>
@@ -100,6 +158,14 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
         {phase === 'unknown' && <button type="button" onClick={() => void check(start())}>Проверить ещё раз</button>}
         <button type="button" className="text-button" onClick={onClose}>Закрыть форму</button></div>
     </fieldset>
+    {conflict && base && <div role="alert" className="conflict-notice">
+      <p>Товар уже изменил другой администратор{changedFields(base, conflict).length
+        ? `: ${changedFields(base, conflict).join(', ')}` : ''}. Ваши изменения в форме сохранены.</p>
+      <div className="form-actions">
+        <button type="button" onClick={() => applyMine(conflict)}>Перенести мои изменения на новую версию</button>
+        <button type="button" className="text-button" onClick={() => onReplace(conflict)}>Открыть новую версию без моих изменений</button>
+      </div>
+    </div>}
     {message && <p role={phase === 'checking' ? 'status' : 'alert'}>{message}</p>}
   </form>;
 }
@@ -139,7 +205,7 @@ export function AdminProducts() {
     <button disabled={status !== 'ready' || !brands.length || !types.length || opening} onClick={() => { setDraft(null); setMessage(''); }}>Добавить товар</button>
     {message && <p role="status">{message}</p>}
     {draft !== undefined && <ProductEditor key={draft ? `${draft.id}:${draft.version}` : 'new'} value={draft} brands={brands} types={types}
-      onClose={() => setDraft(undefined)} onSaved={product => { setDraft(product); setMessage('Товар сохранён.'); setAttempt(value => value + 1); }} />}
+      onClose={() => setDraft(undefined)} onReplace={product => { setDraft(product); setMessage(''); }} onSaved={product => { setDraft(product); setMessage('Товар сохранён.'); setAttempt(value => value + 1); }} />}
     {status === 'loading' ? <p role="status">Загружаем товары…</p> : status === 'error'
       ? <div role="alert"><p>Не удалось загрузить товары.</p><button onClick={() => setAttempt(value => value + 1)}>Повторить</button></div>
       : <><ul className="admin-list">{data?.items.length === 0 && <li>Товаров пока нет.</li>}{data?.items.map(product => <li key={product.id}>
