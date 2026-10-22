@@ -7,13 +7,8 @@ export type ProductSummary = {
 };
 export type ProductPage = { items: ProductSummary[]; page: number; pageSize: number; hasMore: boolean };
 
-export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await send(url, { signal }, 'GET');
-  if (!response.ok) {
-    const problem = await readProblem(response);
-    throw new ApiError(response.status, undefined, problem.code, problem.requestId);
-  }
-  return await response.json() as T;
+export function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  return execute<T>(url, 'GET', {}, undefined, signal, { canRepeat: true, serverTitles: false });
 }
 
 export const formatPrice = (value: number) => new Intl.NumberFormat('ru-RU', {
@@ -68,53 +63,122 @@ async function readProblem(response: Response): Promise<Problem> {
 /** Login only registers the customer once, so like a read it is safe to repeat. */
 const isSave = (url: string, method: string) => method !== 'GET' && url !== '/api/auth/telegram';
 
-async function send(url: string, init: RequestInit, method: string): Promise<Response> {
-  try { return await fetch(url, init); }
-  catch (error) {
-    if (init.signal?.aborted) throw error;
-    // fetch rejects only when no HTTP response arrived: offline, DNS, TLS, dropped connection.
-    throw !isSave(url, method)
-      ? new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите.', 'network_error', undefined, 'network')
-      : new ApiError(0, 'Связь прервалась до ответа сервера. Изменения могли сохраниться: обновите список и проверьте, прежде чем повторять.',
-        'outcome_unknown', undefined, 'network');
-  }
+/** Limit for a whole operation, including retries: no request keeps the interface loading forever. */
+export const READ_LIMIT_MS = 15_000;
+export const SAVE_LIMIT_MS = 30_000;
+const READ_RETRIES = 2, SAVE_RETRIES = 1, MAX_RETRY_AFTER_MS = 10_000;
+
+/**
+ * True when a save may or may not have been applied: no response, a timeout or a server error after sending.
+ * A cancelled request on the client is not proof that the server rolled it back.
+ */
+export function isUnknownOutcome(error: unknown): boolean {
+  return error instanceof ApiError && (error.kind === 'network'
+    || (error.status >= 500 && error.code !== 'secure_transport_unavailable'));
 }
 
-function waitForTransportRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
+function noResponse(save: boolean, timedOut: boolean): ApiError {
+  if (timedOut) return save
+    ? new ApiError(0, 'Сервер не ответил вовремя. Изменения могли сохраниться: проверьте, прежде чем повторять.', 'outcome_unknown', undefined, 'network')
+    : new ApiError(0, 'Сервер не ответил вовремя. Повторите попытку.', 'timeout', undefined, 'network');
+  // fetch rejects only when no HTTP response arrived: offline, DNS, TLS, dropped connection.
+  return save
+    ? new ApiError(0, 'Связь прервалась до ответа сервера. Изменения могли сохраниться: обновите список и проверьте, прежде чем повторять.',
+      'outcome_unknown', undefined, 'network')
+    : new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите.', 'network_error', undefined, 'network');
+}
+
+/** Aborts on the caller's signal or when the time limit runs out, and remembers which one happened. */
+function withDeadline(outer: AbortSignal | undefined, milliseconds: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, milliseconds);
+  const forward = () => controller.abort(outer?.reason);
+  if (outer?.aborted) forward(); else outer?.addEventListener('abort', forward, { once: true });
+  return {
+    signal: controller.signal, timedOut: () => timedOut, started: Date.now(),
+    dispose: () => { window.clearTimeout(timer); outer?.removeEventListener('abort', forward); },
+  };
+}
+
+function pause(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) { reject(signal.reason); return; }
-    const abort = () => { window.clearTimeout(timer); reject(signal?.reason); };
+    if (signal.aborted) { reject(signal.reason); return; }
+    const abort = () => { window.clearTimeout(timer); reject(signal.reason); };
     const timer = window.setTimeout(() => {
-      signal?.removeEventListener('abort', abort);
+      signal.removeEventListener('abort', abort);
       resolve();
     }, milliseconds);
-    signal?.addEventListener('abort', abort, { once: true });
+    signal.addEventListener('abort', abort, { once: true });
   });
 }
 
-/** `idempotencyKey`: the same key for every attempt of one save, so a repeat after a lost response does not write twice. */
+/** 0.5 s, then 1.5 s, each ±30 %, so many clients do not retry at the same moment. */
+const backoff = (retry: number) => 500 * 3 ** retry * (0.7 + Math.random() * 0.6);
+
+function retryAfter(response: Response): number | undefined {
+  const value = response.headers.get('Retry-After');
+  if (!value) return undefined;
+  const milliseconds = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : undefined;
+}
+
+type Policy = { canRepeat: boolean; serverTitles: boolean };
+
+async function execute<T>(url: string, method: string, headers: Record<string, string>, body: string | undefined,
+  outer: AbortSignal | undefined, policy: Policy): Promise<T> {
+  const save = isSave(url, method);
+  const limit = save ? SAVE_LIMIT_MS : READ_LIMIT_MS;
+  const deadline = withDeadline(outer, limit);
+  const fail = () => outer?.aborted ? outer.reason : noResponse(save, deadline.timedOut());
+  try {
+    for (let transportAttempt = 0, retry = 0; ;) {
+      // Waits only when the delay still fits into the operation limit.
+      const wait = async (milliseconds: number) => {
+        if (Date.now() - deadline.started + milliseconds >= limit) return false;
+        try { await pause(milliseconds, deadline.signal); } catch { throw fail(); }
+        return true;
+      };
+      let response: Response;
+      try { response = await fetch(url, { method, headers, body, signal: deadline.signal }); }
+      catch (error) {
+        if (outer?.aborted) throw error;
+        if (!deadline.timedOut() && policy.canRepeat && retry < (save ? SAVE_RETRIES : READ_RETRIES) && await wait(backoff(retry++))) continue;
+        throw fail();
+      }
+      if (response.ok) return await response.json() as T;
+      const problem = await readProblem(response);
+      // This marker is emitted only before authentication and before any business write, so it is always safe to repeat.
+      if (response.status === 503 && problem.code === 'secure_transport_unavailable' && transportAttempt < 3
+        && await wait(150 * 2 ** transportAttempt++)) continue;
+      // Other temporary failures are repeated only when repeating cannot write twice:
+      // reads, login, and saves carrying an Idempotency-Key. 401, 403 and other 4xx are final.
+      if (policy.canRepeat && [502, 503, 504].includes(response.status) && problem.code !== 'secure_transport_unavailable'
+        && retry < (save ? SAVE_RETRIES : READ_RETRIES)) {
+        const delay = retryAfter(response);
+        if ((delay === undefined || delay <= MAX_RETRY_AFTER_MS) && await wait(delay ?? backoff(retry))) { retry++; continue; }
+      }
+      if (!policy.serverTitles) throw new ApiError(response.status, undefined, problem.code, problem.requestId);
+      if (response.status === 401) window.dispatchEvent(new Event('telegram-auth-expired'));
+      if (response.status === 403) window.dispatchEvent(new Event('telegram-access-denied'));
+      // Without a recognised server answer a failed write may still have been applied.
+      const message = problem.title ?? (save && response.status >= 500
+        ? 'Сервер не подтвердил сохранение. Обновите список и проверьте изменения, прежде чем повторять.' : undefined);
+      throw new ApiError(response.status, message, problem.code, problem.requestId);
+    }
+  } finally { deadline.dispose(); }
+}
+
+/**
+ * `idempotencyKey`: the same key for every attempt of one save, so a repeat after a lost response does not write twice.
+ * Only such saves are retried automatically; a save without a key is never repeated blindly.
+ */
 export async function authorizedJson<T>(url: string, method = 'GET', body?: unknown, signal?: AbortSignal, idempotencyKey?: string): Promise<T> {
   const initData = getTelegramInitData();
   if (!initData) throw new ApiError(401, 'Нет данных входа Telegram. Откройте магазин из Telegram.', 'auth_missing');
-  for (let attempt = 0; ; attempt++) {
-    const response = await send(url, { method, signal,
-      headers: { Authorization: `tma ${initData}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    }, method);
-    if (response.ok) return await response.json() as T;
-    const problem = await readProblem(response);
-    // This marker is emitted only before authentication and before any business write.
-    // Never automatically repeat a write with an unknown outcome (network errors/other 5xx).
-    if (response.status === 503 && problem.code === 'secure_transport_unavailable' && attempt < 3) {
-      await waitForTransportRetry(150 * 2 ** attempt, signal);
-      continue;
-    }
-    if (response.status === 401) window.dispatchEvent(new Event('telegram-auth-expired'));
-    if (response.status === 403) window.dispatchEvent(new Event('telegram-access-denied'));
-    // Without a recognised server answer a failed write may still have been applied.
-    const message = problem.title ?? (isSave(url, method) && response.status >= 500
-      ? 'Сервер не подтвердил сохранение. Обновите список и проверьте изменения, прежде чем повторять.' : undefined);
-    throw new ApiError(response.status, message, problem.code, problem.requestId);
-  }
+  return execute<T>(url, method, {
+    Authorization: `tma ${initData}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+  }, body === undefined ? undefined : JSON.stringify(body), signal,
+  { canRepeat: !isSave(url, method) || idempotencyKey !== undefined, serverTitles: true });
 }
