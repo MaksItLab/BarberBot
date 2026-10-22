@@ -255,6 +255,52 @@ namespace CosmeticsShop.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CosmeticsShop.Infrastructure.Data.SaveOperation", b =>
+                {
+                    b.Property<long>("OwnerTelegramId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("owner_telegram_id");
+
+                    b.Property<Guid>("Key")
+                        .HasColumnType("uuid")
+                        .HasColumnName("key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<byte[]>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<long?>("ProductId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("product_id");
+
+                    b.HasKey("OwnerTelegramId", "Key")
+                        .HasName("pk_save_operations");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_save_operations_created_at");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("save_operations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_save_operations_kind", "kind IN ('product.create', 'product.update')");
+                        });
+                });
+
             modelBuilder.Entity("CosmeticsShop.Domain.Product", b =>
                 {
                     b.HasOne("CosmeticsShop.Domain.Brand", "Brand")
@@ -283,6 +329,14 @@ namespace CosmeticsShop.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("CosmeticsShop.Infrastructure.Data.SaveOperation", b =>
+                {
+                    b.HasOne("CosmeticsShop.Domain.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("CosmeticsShop.Domain.Brand", b =>

@@ -92,12 +92,14 @@ function waitForTransportRetry(milliseconds: number, signal?: AbortSignal): Prom
   });
 }
 
-export async function authorizedJson<T>(url: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+/** `idempotencyKey`: the same key for every attempt of one save, so a repeat after a lost response does not write twice. */
+export async function authorizedJson<T>(url: string, method = 'GET', body?: unknown, signal?: AbortSignal, idempotencyKey?: string): Promise<T> {
   const initData = getTelegramInitData();
   if (!initData) throw new ApiError(401, 'Нет данных входа Telegram. Откройте магазин из Telegram.', 'auth_missing');
   for (let attempt = 0; ; attempt++) {
     const response = await send(url, { method, signal,
-      headers: { Authorization: `tma ${initData}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { Authorization: `tma ${initData}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }, method);
     if (response.ok) return await response.json() as T;

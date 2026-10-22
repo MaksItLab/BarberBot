@@ -16,6 +16,7 @@ public sealed class ShopExceptionHandler : IExceptionHandler
                 ShopFailureKind.Invalid => (400, ShopErrorCodes.ValidationFailed),
                 ShopFailureKind.Conflict => (409, ShopErrorCodes.Conflict),
                 ShopFailureKind.NotFound => (404, ShopErrorCodes.NotFound),
+                ShopFailureKind.KeyReused => (422, ShopErrorCodes.IdempotencyKeyReused),
                 _ => (500, ShopErrorCodes.InternalError)
             };
             await Problem(context, status, failure.Message, code);

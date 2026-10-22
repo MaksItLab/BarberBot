@@ -30,6 +30,7 @@ internal static class TestShopHost
         builder.Services.AddScoped<ICatalogReader, CatalogReader>();
         builder.Services.AddScoped<IAdminReferenceData, AdminReferenceData>();
         builder.Services.AddScoped<IAdminProducts, AdminProducts>();
+        builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<ITelegramIdentityValidator>(new TelegramInitDataValidator(
             Options.Create(new TelegramOptions { BotToken = TelegramValidationTests.Token }), new TelegramValidationTests.FixedClock()));
         builder.Services.AddTelegramAuthentication();

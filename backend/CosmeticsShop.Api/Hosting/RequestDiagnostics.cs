@@ -14,6 +14,9 @@ public static class ShopErrorCodes
     public const string ValidationFailed = "validation_failed";
     public const string NotFound = "not_found";
     public const string Conflict = "conflict";
+    public const string IdempotencyKeyRequired = "idempotency_key_required";
+    public const string IdempotencyKeyReused = "idempotency_key_reused";
+    public const string OperationNotFound = "operation_not_found";
     public const string DatabaseUnavailable = "database_unavailable";
     public const string ServiceUnavailable = "service_unavailable";
     public const string InternalError = "internal_error";
@@ -105,6 +108,7 @@ public static class RequestDiagnostics
         403 => ShopErrorCodes.Forbidden,
         404 => ShopErrorCodes.NotFound,
         409 => ShopErrorCodes.Conflict,
+        422 => ShopErrorCodes.IdempotencyKeyReused,
         503 => ShopErrorCodes.ServiceUnavailable,
         >= 500 => ShopErrorCodes.InternalError,
         _ => ShopErrorCodes.RequestFailed

@@ -132,14 +132,24 @@ public sealed class AdminProductHttpTests(PostgresFixture fixture) : IClassFixtu
         await app.StopAsync();
     }
 
-    private async Task<HttpClient> AdminClient(string address)
+    internal async Task<HttpClient> AdminClient(string address)
     {
         await using var db = fixture.CreateContext(); await new UserAccess(db).GrantAdminAsync(9_000_000_001, default);
-        var client = new HttpClient { BaseAddress = new Uri(address) };
+        var client = new HttpClient(new FreshIdempotencyKeys { InnerHandler = new HttpClientHandler() }) { BaseAddress = new Uri(address) };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("tma", TelegramValidationTests.Golden);
         return client;
     }
-    private async Task<SaveProductRequest> Input()
+    /// <summary>Gives every write its own new key unless a test sets one, as a fresh form in the interface does.</summary>
+    internal sealed class FreshIdempotencyKeys : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method != HttpMethod.Get && !request.Headers.Contains("Idempotency-Key"))
+                request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+    internal async Task<SaveProductRequest> Input()
     {
         await using var db = fixture.CreateContext();
         var brand = new Brand { Name = Guid.NewGuid().ToString("N") };
@@ -147,7 +157,7 @@ public sealed class AdminProductHttpTests(PostgresFixture fixture) : IClassFixtu
         db.AddRange(brand, type); await db.SaveChangesAsync();
         return new("Крем", "Описание", brand.Id.ToString(), type.Id.ToString(), null, true, null, [new(null, null, null, null, 100.19m, true)]);
     }
-    private static SaveProductRequest From(AdminProduct product) => new(product.Name, product.Description, product.BrandId,
+    internal static SaveProductRequest From(AdminProduct product) => new(product.Name, product.Description, product.BrandId,
         product.TypeId, product.ImagePath, product.IsVisible, product.Version, product.Variants.Select(variant => (SaveVariantRequest?)new(variant.Id,
             variant.Volume, variant.Size, variant.Shade, variant.PriceRub, variant.IsVisible)).ToArray());
     private static async Task<AdminProduct> Create(HttpClient client, SaveProductRequest input)

@@ -9,6 +9,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       body: 'window.Telegram={WebApp:{initData:"test-init-data",ready(){},expand(){},colorScheme:"light",onEvent(){},offEvent(){}}};' }));
     await page.route('**/api/auth/telegram', route => route.fulfill({ json: { telegramId: '1', role: 'Admin' } }));
     let product, conflict = false, version = 0;
+    const keys = [];
     await page.route('**/api/catalog/**', route => {
       const url = new URL(route.request().url());
       const items = product?.isVisible ? [{ id: product.id, name: product.name, brandName: 'Бренд А', imagePath: null,
@@ -22,6 +23,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
       if (url.pathname.endsWith('/types')) return route.fulfill({ json: [{ id: '1', name: 'Уход' }] });
       if (route.request().method() === 'GET') return route.fulfill({ json: /\/products\/\d+$/.test(url.pathname) ? product
         : { items: product ? [{ id: product.id, name: product.name, brandName: 'Бренд А', isVisible: product.isVisible }] : [], page: 1, pageSize: 20, hasMore: false } });
+      const key = route.request().headers()['idempotency-key'];
+      assert.match(key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      keys.push(key);
       if (conflict) return route.fulfill({ status: 409, json: { title: 'Товар уже изменён другим администратором.' } });
       const input = route.request().postDataJSON();
       product = { ...input, id: '1', version: String(++version), variants: input.variants.map((value, index) => ({ ...value, id: value.id || String(index + 1) })) };
@@ -51,12 +55,18 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.getByRole('button', { name: 'Сохранить товар', exact: true }).click();
     await page.getByText('Товар уже изменён другим администратором.', { exact: true }).waitFor();
     assert.equal(await page.getByLabel('Название товара', { exact: true }).inputValue(), 'Моя правка');
+    // A second attempt from the same form repeats the same intent; the earlier create had its own key.
+    await page.getByRole('button', { name: 'Сохранить товар', exact: true }).click();
+    for (let wait = 0; wait < 100 && keys.length < 3; wait++) await page.waitForTimeout(50);
+    assert.equal(keys.length, 3);
+    assert.equal(keys[2], keys[1]);
+    assert.notEqual(keys[1], keys[0]);
     assert.equal(await page.getByLabel('Цена варианта 1', { exact: true }).inputValue(), '199.99');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: 'artifacts/admin-product-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'В каталог' }).click();
     await page.getByRole('heading', { name: 'Новый крем', exact: true }).waitFor();
     assert.deepEqual(errors, []);
-    console.log('PASS: product form, variants, ruble input, publish, immutable saved variants, conflict retains input, refreshed catalog, mobile.');
+    console.log('PASS: product form, variants, ruble input, publish, immutable saved variants, conflict retains input, one save key per form, refreshed catalog, mobile.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -26,6 +26,9 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const request = useRef<AbortController | null>(null);
+  // One key per opened form: every attempt to save it repeats the same intent. After a confirmed
+  // save the editor is remounted for the new version and gets a new key.
+  const saveKey = useRef(crypto.randomUUID());
   useEffect(() => () => request.current?.abort(), []);
   function update(key: string, patch: Partial<DraftVariant>) { setVariants(previous => previous.map(variant => variant.key === key ? { ...variant, ...patch } : variant)); }
   async function save(event: React.FormEvent) {
@@ -40,7 +43,7 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
         name, description, brandId, typeId, imagePath, isVisible: visible, version: value?.version ?? null,
         variants: variants.map(variant => ({ id: variant.id ?? null, volume: variant.volume, size: variant.size, shade: variant.shade,
           priceRub: Number(variant.price.trim().replace(',', '.')), isVisible: variant.isVisible })),
-      }, controller.signal);
+      }, controller.signal, saveKey.current);
       if (!controller.signal.aborted) onSaved(result);
     } catch (error) { if (!controller.signal.aborted) setMessage(errorText(error)); }
     finally { if (!controller.signal.aborted) setSaving(false); }

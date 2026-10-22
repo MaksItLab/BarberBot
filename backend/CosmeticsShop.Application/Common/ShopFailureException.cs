@@ -1,6 +1,6 @@
 namespace CosmeticsShop.Application.Common;
 
-public enum ShopFailureKind { Invalid, Conflict, NotFound }
+public enum ShopFailureKind { Invalid, Conflict, NotFound, KeyReused }
 
 public sealed class ShopFailureException(ShopFailureKind kind, string message) : Exception(message)
 {
