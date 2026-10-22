@@ -14,7 +14,7 @@ builder.Configuration
     .AddJsonFile("appsettings.Local.json", optional: true)
     .AddJsonFile("appsettings.Tunnel.json", optional: true, reloadOnChange: true)
     .AddEnvironmentVariables();
-builder.Services.AddProblemDetails();
+builder.Services.AddShopProblemDetails();
 builder.Services.AddExceptionHandler<ShopExceptionHandler>();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddTelegramAuthentication();
@@ -30,6 +30,7 @@ if (args.Length == 2 && args[0] == "--grant-admin")
     Console.WriteLine("Administrator role saved.");
     return;
 }
+app.UseRequestDiagnostics();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseForwardedHeaders();

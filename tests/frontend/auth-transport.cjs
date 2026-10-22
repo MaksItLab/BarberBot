@@ -62,14 +62,18 @@ const transportProblem = {code:'secure_transport_unavailable',title:'Не уда
   for(const mode of ['unknown-503','unknown-500','network']){
    postMode=mode;postCalls=0;
    await page.getByRole('button',{name:'Сохранить',exact:true}).click();
-   await page.getByText(mode==='network'?'Не удалось сохранить. Проверьте подключение и повторите.':'Не удалось выполнить действие. Попробуйте ещё раз.',{exact:true}).waitFor();
+   // Each unknown outcome tells the admin to check before repeating; none is retried automatically.
+   await page.getByText(mode==='network'?'Связь прервалась до ответа сервера. Изменения могли сохраниться: обновите список и проверьте, прежде чем повторять.'
+    :mode==='unknown-503'?'Сервер не подтвердил сохранение. Обновите список и проверьте изменения, прежде чем повторять.'
+    :'Неизвестный результат записи',{exact:true}).waitFor();
    await page.waitForTimeout(350);
    assert.equal(postCalls,1);assert.equal(writes,1);
    assert.equal(await page.getByLabel('Название',{exact:true}).inputValue(),'Тестовый бренд');
   }
   loginMode='transport-always';
   await page.evaluate(()=>window.dispatchEvent(new Event('load')));
-  await page.getByText('Не удалось проверить вход. Проверьте подключение и повторите попытку.',{exact:true}).waitFor();
+  // The notice now names the failure class instead of a generic connection message.
+  await page.getByText('Не удалось подтвердить защищённое соединение. Повторите попытку.',{exact:true}).waitFor();
   await page.getByText('Администратор',{exact:true}).waitFor();
   assert.equal(await page.getByLabel('Название',{exact:true}).inputValue(),'Тестовый бренд');
   accessDenied=true;

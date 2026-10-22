@@ -53,7 +53,7 @@ public sealed class ProxyHttpTests(PostgresFixture fixture) : IClassFixture<Post
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("tma", "invalid-test-data");
         using var invalid = await client.PostAsJsonAsync("/api/admin/brands", body);
         Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
-        Assert.False((await invalid.Content.ReadFromJsonAsync<JsonElement>()).TryGetProperty("code", out _));
+        Assert.Equal("auth_invalid", (await invalid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
         Assert.Equal(1, await db.Brands.CountAsync());
         await app.StopAsync();
     }

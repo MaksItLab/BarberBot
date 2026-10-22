@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using CosmeticsShop.Api.Auth;
+using CosmeticsShop.Api.Hosting;
 using CosmeticsShop.Application.Auth;
 using Microsoft.AspNetCore.Authentication;
 
@@ -23,7 +24,8 @@ public static class AuthEndpoints
         app.MapGet("/api/me", async (ClaimsPrincipal principal, IUserAccess users, CancellationToken ct) =>
         {
             var user = await users.FindAsync(TelegramId(principal), ct);
-            return user is null ? Results.Problem(statusCode: 401, title: "Сначала откройте магазин заново из Telegram.") : Results.Ok(user);
+            return user is null ? Results.Problem(statusCode: 401, title: "Сначала откройте магазин заново из Telegram.",
+                extensions: new Dictionary<string, object?> { ["code"] = ShopErrorCodes.UserNotFound }) : Results.Ok(user);
         }).RequireAuthorization();
     }
 

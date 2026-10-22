@@ -9,7 +9,11 @@ public interface IUserAccess
     Task GrantAdminAsync(long telegramId, CancellationToken cancellationToken);
 }
 
+public enum TelegramInitDataStatus { Valid, Invalid, Expired }
+
+public readonly record struct TelegramInitDataCheck(TelegramInitDataStatus Status, long? TelegramId = null);
+
 public interface ITelegramIdentityValidator
 {
-    long? Validate(string initData);
+    TelegramInitDataCheck Check(string initData);
 }

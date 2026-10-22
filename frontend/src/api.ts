@@ -8,8 +8,11 @@ export type ProductSummary = {
 export type ProductPage = { items: ProductSummary[]; page: number; pageSize: number; hasMore: boolean };
 
 export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal });
-  if (!response.ok) throw new ApiError(response.status);
+  const response = await send(url, { signal }, 'GET');
+  if (!response.ok) {
+    const problem = await readProblem(response);
+    throw new ApiError(response.status, undefined, problem.code, problem.requestId);
+  }
   return await response.json() as T;
 }
 
@@ -27,8 +30,54 @@ export type ProductDetails = {
   typeName: string; imagePath: string | null; variants: ProductVariant[];
 };
 
+/** `network`: no response from the server at all, so a write may or may not have been applied. */
+export type ApiErrorKind = 'http' | 'network';
+
 export class ApiError extends Error {
-  constructor(public readonly status: number, message = 'Не удалось выполнить действие. Попробуйте ещё раз.') { super(message); }
+  constructor(public readonly status: number, message = 'Не удалось выполнить действие. Попробуйте ещё раз.',
+    public readonly code?: string, public readonly requestId?: string, public readonly kind: ApiErrorKind = 'http') { super(message); }
+
+  /** Short reference to find the request in the server log (the full id is logged as request=...). */
+  get reference(): string | undefined { return this.requestId?.slice(0, 8); }
+}
+
+export function describeError(error: unknown, fallback: string): string {
+  if (!(error instanceof ApiError)) return fallback;
+  return error.reference ? `${error.message} Код обращения: ${error.reference}.` : error.message;
+}
+
+type Problem = { title?: string; code?: string; requestId?: string };
+
+async function readProblem(response: Response): Promise<Problem> {
+  const header = response.headers.get('X-Request-Id') ?? undefined;
+  try {
+    const payload: unknown = await response.json();
+    if (payload && typeof payload === 'object') {
+      const { title, code, requestId } = payload as Record<string, unknown>;
+      return {
+        title: typeof title === 'string' && title.length <= 300 ? title : undefined,
+        code: typeof code === 'string' && code.length <= 64 ? code : undefined,
+        requestId: typeof requestId === 'string' && /^[0-9a-f]{8,64}$/.test(requestId) ? requestId : header,
+      };
+    }
+  }
+  catch { /* A proxy may return HTML; keep the generic error. */ }
+  return { requestId: header };
+}
+
+/** Login only registers the customer once, so like a read it is safe to repeat. */
+const isSave = (url: string, method: string) => method !== 'GET' && url !== '/api/auth/telegram';
+
+async function send(url: string, init: RequestInit, method: string): Promise<Response> {
+  try { return await fetch(url, init); }
+  catch (error) {
+    if (init.signal?.aborted) throw error;
+    // fetch rejects only when no HTTP response arrived: offline, DNS, TLS, dropped connection.
+    throw !isSave(url, method)
+      ? new ApiError(0, 'Нет связи с сервером. Проверьте интернет и повторите.', 'network_error', undefined, 'network')
+      : new ApiError(0, 'Связь прервалась до ответа сервера. Изменения могли сохраниться: обновите список и проверьте, прежде чем повторять.',
+        'outcome_unknown', undefined, 'network');
+  }
 }
 
 function waitForTransportRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -45,21 +94,14 @@ function waitForTransportRetry(milliseconds: number, signal?: AbortSignal): Prom
 
 export async function authorizedJson<T>(url: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const initData = getTelegramInitData();
-  if (!initData) throw new ApiError(401);
+  if (!initData) throw new ApiError(401, 'Нет данных входа Telegram. Откройте магазин из Telegram.', 'auth_missing');
   for (let attempt = 0; ; attempt++) {
-    const response = await fetch(url, { method, signal,
+    const response = await send(url, { method, signal,
       headers: { Authorization: `tma ${initData}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
+    }, method);
     if (response.ok) return await response.json() as T;
-    let problem: { title?: unknown; code?: unknown } = {};
-    if ([400, 404, 409, 503].includes(response.status)) {
-      try {
-        const payload: unknown = await response.json();
-        if (payload && typeof payload === 'object') problem = payload as typeof problem;
-      }
-      catch { /* A proxy may return HTML; keep the generic error. */ }
-    }
+    const problem = await readProblem(response);
     // This marker is emitted only before authentication and before any business write.
     // Never automatically repeat a write with an unknown outcome (network errors/other 5xx).
     if (response.status === 503 && problem.code === 'secure_transport_unavailable' && attempt < 3) {
@@ -68,7 +110,9 @@ export async function authorizedJson<T>(url: string, method = 'GET', body?: unkn
     }
     if (response.status === 401) window.dispatchEvent(new Event('telegram-auth-expired'));
     if (response.status === 403) window.dispatchEvent(new Event('telegram-access-denied'));
-    const message = typeof problem.title === 'string' && problem.title.length <= 300 ? problem.title : undefined;
-    throw new ApiError(response.status, message);
+    // Without a recognised server answer a failed write may still have been applied.
+    const message = problem.title ?? (isSave(url, method) && response.status >= 500
+      ? 'Сервер не подтвердил сохранение. Обновите список и проверьте изменения, прежде чем повторять.' : undefined);
+    throw new ApiError(response.status, message, problem.code, problem.requestId);
   }
 }
