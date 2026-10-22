@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/CosmeticsShop.Api/CosmeticsShop.Api.csproj" />
+    <Project Path="backend/CosmeticsShop.Application/CosmeticsShop.Application.csproj" />
+    <Project Path="backend/CosmeticsShop.Contracts/CosmeticsShop.Contracts.csproj" />
+    <Project Path="backend/CosmeticsShop.Domain/CosmeticsShop.Domain.csproj" />
+    <Project Path="backend/CosmeticsShop.Infrastructure/CosmeticsShop.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CosmeticsShop.Api.IntegrationTests/CosmeticsShop.Api.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

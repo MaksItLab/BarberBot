@@ -1,0 +1,131 @@
+import { useEffect, useRef, useState } from 'react';
+import { getJson, formatPrice, localImage } from './api';
+import type { CatalogOption, ProductPage, ProductSummary } from './api';
+
+type CatalogState = {
+  items: ProductSummary[]; brands: CatalogOption[]; types: CatalogOption[];
+  hasMore: boolean; page: number; status: 'loading' | 'ready' | 'error'; moreError: boolean;
+};
+const empty: CatalogState = { items: [], brands: [], types: [], hasMore: false, page: 1, status: 'loading', moreError: false };
+
+export function ProductImage({ path, name }: { path: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [path]);
+  const src = localImage(path);
+  const illustration = name.length % 2 === 0 ? 'jar' : 'bottle';
+  return <div className="product-image">{src && !failed
+    ? <img src={src} alt={name} loading="lazy" onError={() => setFailed(true)} />
+    : <div className="image-placeholder" aria-label="Без изображения" role="img">
+      <img src={`/images/design/${illustration}-illustration.webp`} alt="" loading="lazy" />
+      <span className="placeholder-caption">Иллюстрация</span></div>}</div>;
+}
+
+export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter: (value: string) => void; onOpen: (id: string) => void }) {
+  const params = new URLSearchParams(search);
+  const brandId = params.get('brandId') ?? '';
+  const typeId = params.get('typeId') ?? '';
+  const filterKey = new URLSearchParams();
+  if (brandId) filterKey.set('brandId', brandId);
+  if (typeId) filterKey.set('typeId', typeId);
+  const key = filterKey.toString();
+  const [state, setState] = useState<CatalogState>(empty);
+  const [attempt, setAttempt] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const moreRequest = useRef<AbortController | null>(null);
+  const requestKey = useRef('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    requestKey.current = key;
+    moreRequest.current?.abort();
+    setLoadingMore(false);
+    setState(previous => ({ ...previous, items: [], status: 'loading', moreError: false, hasMore: false }));
+    Promise.all([
+      getJson<ProductPage>(`/api/catalog/products?${key}`, controller.signal),
+      getJson<CatalogOption[]>('/api/catalog/brands', controller.signal),
+      getJson<CatalogOption[]>('/api/catalog/types', controller.signal),
+    ]).then(([page, brands, types]) => {
+      if (!controller.signal.aborted) setState({ ...page, brands, types, status: 'ready', moreError: false });
+    }).catch(() => {
+      if (!controller.signal.aborted) setState(previous => ({ ...previous, status: 'error' }));
+    });
+    return () => { controller.abort(); moreRequest.current?.abort(); };
+  }, [key, attempt]);
+
+  function filter(name: string, value: string) {
+    const next = new URLSearchParams(key);
+    if (value) next.set(name, value); else next.delete(name);
+    onFilter(next.toString());
+  }
+
+  async function loadMore() {
+    if (loadingMore || !state.hasMore) return;
+    const controller = new AbortController();
+    moreRequest.current = controller;
+    setLoadingMore(true);
+    setState(previous => ({ ...previous, moreError: false }));
+    try {
+      const page = await getJson<ProductPage>(`/api/catalog/products?${key}&page=${state.page + 1}`, controller.signal);
+      if (!controller.signal.aborted && requestKey.current === key) {
+        setState(previous => ({ ...previous, items: [...previous.items, ...page.items], page: page.page, hasMore: page.hasMore }));
+      }
+    } catch {
+      if (!controller.signal.aborted) setState(previous => ({ ...previous, moreError: true }));
+    } finally {
+      if (!controller.signal.aborted) setLoadingMore(false);
+    }
+  }
+
+  function options(values: CatalogOption[], selected: string) {
+    return <>{selected && !values.some(option => option.id === selected)
+      && <option value={selected}>Выбранный фильтр</option>}
+      {values.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</>;
+  }
+
+  return <>
+    <section className="intro" aria-labelledby="intro-title">
+      <h1 id="intro-title">Твой уход. Твой выбор.</h1>
+      <div className="care-banner"><img src="/images/design/care-hero.webp" alt="" fetchPriority="high" />
+        <p>Каждый день —<br />для себя.</p></div>
+    </section>
+    <div className="catalog-heading"><h2 id="catalog-title" tabIndex={-1}>Каталог</h2></div>
+    <section className="filters" aria-label="Фильтры каталога">
+      <label><span className="sr-only">Бренд</span><select aria-label="Бренд" value={brandId} onChange={event => filter('brandId', event.target.value)}>
+        <option value="">Все бренды</option>{options(state.brands, brandId)}</select></label>
+      <label><span className="sr-only">Тип косметики</span><select aria-label="Тип косметики" value={typeId} onChange={event => filter('typeId', event.target.value)}>
+        <option value="">Все типы</option>{options(state.types, typeId)}</select></label>
+      {(brandId || typeId) && <button className="text-button" onClick={() => onFilter('')}>Сбросить</button>}
+    </section>
+    {state.types.length > 0 && <div className="type-shortcuts" role="group" aria-label="Быстрый выбор типа косметики">
+      <button aria-pressed={!typeId} onClick={() => filter('typeId', '')}>Всё</button>
+      {state.types.map(type => <button key={type.id} aria-pressed={type.id === typeId}
+        onClick={() => filter('typeId', type.id)}>{type.name}</button>)}
+    </div>}
+    {state.status !== 'ready' || state.items.length === 0 ? <section className="empty-state" aria-live="polite" aria-busy={state.status === 'loading'}>
+      <h2>{state.status === 'loading' ? 'Загружаем косметику…' : state.status === 'error'
+        ? 'Не удалось загрузить каталог' : brandId || typeId ? 'Ничего не найдено' : 'Каталог скоро появится'}</h2>
+      <p>{state.status === 'error' ? 'Проверьте подключение и попробуйте ещё раз.'
+        : state.status === 'loading' ? 'Подождите немного.' : brandId || typeId
+          ? 'Попробуйте изменить или сбросить фильтры.' : 'Здесь появятся товары и цены.'}</p>
+      {state.status === 'error' && <button onClick={() => setAttempt(value => value + 1)}>Попробовать снова</button>}
+    </section> : <>
+      <section className="product-grid" aria-label="Товары">
+        {state.items.map(product => <article className="product-card" key={product.id}>
+          <a href={`/products/${product.id}${search}`} onClick={event => {
+            if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+              event.preventDefault(); onOpen(product.id);
+            }
+          }}>
+          <ProductImage path={product.imagePath} name={product.name} />
+          <p className="product-brand">{product.brandName}</p><h2>{product.name}</h2>
+          <p className="product-price">{product.hasPriceRange ? 'от ' : ''}{formatPrice(product.priceRub)}</p>
+          </a>
+        </article>)}
+      </section>
+      <div className="pagination" aria-live="polite">
+        {state.moreError && <p role="alert">Не удалось загрузить следующие товары. Попробуйте ещё раз.</p>}
+        {state.hasMore && <button disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? 'Загружаем…' : 'Показать ещё'}</button>}
+      </div>
+    </>}
+  </>;
+}

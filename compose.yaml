@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: cosmetics
+      POSTGRES_USER: cosmetics
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create .env from .env.example and set POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=cosmetics;Username=cosmetics;Password=${POSTGRES_PASSWORD};Timeout=3
+      Telegram__Enabled: ${TELEGRAM_ENABLED:-false}
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+      Telegram__MiniAppUrl: ${TELEGRAM_MINI_APP_URL:-}
+      ReverseProxy__KnownProxy: ${TRUSTED_PROXY_IP:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+**/appsettings.Local.json
+**/appsettings.Tunnel.json*
+**/node_modules
+**/bin
+**/obj
+**/wwwroot
+frontend/dist
+artifacts
+.vs
+.idea
+.pnpm-store
+**/.pnpm-store
