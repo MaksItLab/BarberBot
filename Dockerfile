@@ -19,7 +19,21 @@ COPY backend/ backend/
 RUN dotnet publish backend/CosmeticsShop.Api/CosmeticsShop.Api.csproj -c Release --no-restore -o /out
 COPY --from=frontend /work/frontend/dist/ /out/wwwroot/
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# Migration bundle: a one-shot job that applies EF Core migrations without the SDK on the server.
+FROM backend AS migrations-build
+COPY dotnet-tools.json ./
+RUN dotnet tool restore
+RUN dotnet ef migrations bundle --configuration Release --no-build \
+    --project backend/CosmeticsShop.Infrastructure --startup-project backend/CosmeticsShop.Api \
+    --output /bundle/efbundle
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS migrations
+WORKDIR /app
+COPY --from=migrations-build /bundle/efbundle ./
+USER $APP_UID
+ENTRYPOINT ["./efbundle"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=backend /out/ ./
 ENV ASPNETCORE_HTTP_PORTS=8080

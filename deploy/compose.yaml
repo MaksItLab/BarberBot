@@ -1,0 +1,87 @@
+# Production stack for one VPS: Caddy (HTTPS) -> app -> PostgreSQL.
+# Run from this directory: docker compose --env-file .env up -d --build
+name: barbershop
+
+services:
+  postgres:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: cosmetics
+      POSTGRES_USER: cosmetics
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create deploy/.env from deploy/.env.example}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [data]
+    restart: unless-stopped
+
+  # One-shot job: docker compose run --rm migrate
+  migrate:
+    build:
+      context: ..
+      target: migrations
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    command: ["--connection", "Host=postgres;Port=5432;Database=cosmetics;Username=cosmetics;Password=${POSTGRES_PASSWORD};Timeout=5"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    profiles: [tools]
+
+  app:
+    build:
+      context: ..
+      target: runtime
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Shop: Host=postgres;Port=5432;Database=cosmetics;Username=cosmetics;Password=${POSTGRES_PASSWORD};Timeout=3
+      Telegram__Enabled: ${TELEGRAM_ENABLED:-false}
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+      Telegram__MiniAppUrl: https://${DOMAIN:?Set DOMAIN in deploy/.env}/
+      # Only Caddy, at its fixed address below, may tell the app that the original request was HTTPS.
+      ReverseProxy__KnownProxy: 172.30.0.10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data, edge]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in deploy/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    networks:
+      edge:
+        ipv4_address: 172.30.0.10
+    restart: unless-stopped
+
+networks:
+  # PostgreSQL has no route outside the host and no published port.
+  data:
+    internal: true
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          # Dynamic addresses come from the upper half, so Caddy's fixed .10 is never taken.
+          ip_range: 172.30.0.128/25
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
