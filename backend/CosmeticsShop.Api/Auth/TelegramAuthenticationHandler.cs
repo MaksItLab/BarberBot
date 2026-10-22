@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using CosmeticsShop.Api.Hosting;
 using CosmeticsShop.Application.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -13,14 +15,21 @@ public sealed class TelegramAuthenticationHandler(
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "Telegram";
-    private static readonly object TransportFailure = new();
+    private static readonly object FailureCode = new();
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var started = Stopwatch.GetTimestamp();
+        try { return await AuthenticateTelegramAsync(); }
+        finally { RequestDiagnostics.RecordAuthenticationTime(Context, Stopwatch.GetElapsedTime(started)); }
+    }
+
+    private async Task<AuthenticateResult> AuthenticateTelegramAsync()
     {
         if (!Request.Headers.TryGetValue("Authorization", out var header)) return AuthenticateResult.NoResult();
         if (!Request.IsHttps && !environment.IsDevelopment())
         {
-            Context.Items[TransportFailure] = true;
+            Context.Items[FailureCode] = ShopErrorCodes.SecureTransportUnavailable;
             // Record only transport flags; never log authorization data or user addresses.
             Logger.LogWarning("Telegram HTTPS check failed. Loopback: {Loopback}; forwarded protocol header: {Forwarded}; original protocol header: {Original}.",
                 Context.Connection.RemoteIpAddress is { } remote && System.Net.IPAddress.IsLoopback(remote),
@@ -29,19 +38,35 @@ public sealed class TelegramAuthenticationHandler(
         }
         if (header.Count != 1
             || header[0] is not { } value || !value.StartsWith("tma ", StringComparison.OrdinalIgnoreCase))
-            return AuthenticateResult.Fail("Invalid Telegram authentication.");
-        var telegramId = validator.Validate(value[4..]);
-        if (telegramId is null) return AuthenticateResult.Fail("Invalid or expired Telegram authentication.");
-        var user = await users.FindAsync(telegramId.Value, Context.RequestAborted);
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, telegramId.Value.ToString(CultureInfo.InvariantCulture)) };
+            return Fail(ShopErrorCodes.AuthInvalid);
+        var check = validator.Check(value[4..]);
+        if (check.Status == TelegramInitDataStatus.Expired) return Fail(ShopErrorCodes.AuthExpired);
+        if (check is not { Status: TelegramInitDataStatus.Valid, TelegramId: { } telegramId }) return Fail(ShopErrorCodes.AuthInvalid);
+        var user = await users.FindAsync(telegramId, Context.RequestAborted);
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, telegramId.ToString(CultureInfo.InvariantCulture)) };
         if (user is not null) claims.Add(new Claim(ClaimTypes.Role, user.Role));
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName)), SchemeName));
     }
 
-    protected override Task HandleChallengeAsync(AuthenticationProperties properties) => Context.Items.ContainsKey(TransportFailure)
-        ? Results.Problem(statusCode: 503, title: "Не удалось подтвердить защищённое соединение. Повторите попытку.",
-            extensions: new Dictionary<string, object?> { ["code"] = "secure_transport_unavailable" }).ExecuteAsync(Context)
-        : WriteProblem(401, "Вход истёк или недействителен. Откройте приложение заново из Telegram.");
-    protected override Task HandleForbiddenAsync(AuthenticationProperties properties) => WriteProblem(403, "Недостаточно прав.");
-    private Task WriteProblem(int status, string title) => Results.Problem(statusCode: status, title: title).ExecuteAsync(Context);
+    private AuthenticateResult Fail(string code)
+    {
+        Context.Items[FailureCode] = code;
+        return AuthenticateResult.Fail("Invalid Telegram authentication.");
+    }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties) =>
+        (Context.Items[FailureCode] as string ?? ShopErrorCodes.AuthMissing) switch
+        {
+            ShopErrorCodes.SecureTransportUnavailable => WriteProblem(503, "Не удалось подтвердить защищённое соединение. Повторите попытку.",
+                ShopErrorCodes.SecureTransportUnavailable),
+            ShopErrorCodes.AuthExpired => WriteProblem(401, "Вход истёк. Откройте приложение заново из Telegram.", ShopErrorCodes.AuthExpired),
+            ShopErrorCodes.AuthInvalid => WriteProblem(401, "Вход недействителен. Откройте приложение заново из Telegram.", ShopErrorCodes.AuthInvalid),
+            _ => WriteProblem(401, "Нет данных входа Telegram. Откройте магазин из Telegram.", ShopErrorCodes.AuthMissing)
+        };
+
+    protected override Task HandleForbiddenAsync(AuthenticationProperties properties) =>
+        WriteProblem(403, "Недостаточно прав.", ShopErrorCodes.Forbidden);
+
+    private Task WriteProblem(int status, string title, string code) => Results.Problem(statusCode: status, title: title,
+        extensions: new Dictionary<string, object?> { ["code"] = code }).ExecuteAsync(Context);
 }

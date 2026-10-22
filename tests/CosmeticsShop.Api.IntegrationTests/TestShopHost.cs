@@ -18,7 +18,8 @@ namespace CosmeticsShop.Api.IntegrationTests;
 
 internal static class TestShopHost
 {
-    public static WebApplication Create(PostgresFixture fixture, string environment = "Development", string? trustedProxy = null)
+    public static WebApplication Create(PostgresFixture fixture, string environment = "Development", string? trustedProxy = null,
+        Action<WebApplicationBuilder>? configure = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment });
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -32,10 +33,11 @@ internal static class TestShopHost
         builder.Services.AddSingleton<ITelegramIdentityValidator>(new TelegramInitDataValidator(
             Options.Create(new TelegramOptions { BotToken = TelegramValidationTests.Token }), new TelegramValidationTests.FixedClock()));
         builder.Services.AddTelegramAuthentication();
-        builder.Services.AddProblemDetails();
+        builder.Services.AddShopProblemDetails();
         builder.Services.AddExceptionHandler<ShopExceptionHandler>();
+        configure?.Invoke(builder);
         var app = builder.Build();
-        app.UseExceptionHandler(); app.UseStatusCodePages(); app.UseForwardedHeaders(); app.UseAuthentication(); app.UseAuthorization();
+        app.UseRequestDiagnostics(); app.UseExceptionHandler(); app.UseStatusCodePages(); app.UseForwardedHeaders(); app.UseAuthentication(); app.UseAuthorization();
         app.MapTelegramAuthentication(); app.MapCatalog(); app.MapAdminReferences(); app.MapAdminProducts();
         return app;
     }

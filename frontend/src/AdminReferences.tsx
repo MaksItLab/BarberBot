@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, authorizedJson } from './api';
+import { authorizedJson, describeError } from './api';
 
 export type Brand = { id: string; name: string; description: string | null };
 export type CosmeticType = { id: string; name: string };
-export const errorText = (error: unknown) => error instanceof ApiError ? error.message : 'Не удалось сохранить. Проверьте подключение и повторите.';
+export const errorText = (error: unknown) => describeError(error, 'Не удалось сохранить. Проверьте подключение и повторите.');
 
 export function AdminReferences() {
   const [tab, setTab] = useState<'brands' | 'types'>('brands');

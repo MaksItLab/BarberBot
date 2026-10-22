@@ -3,6 +3,7 @@ import { connectTelegram, connectBackButton, hasTelegramLaunch } from './telegra
 import { Catalog } from './Catalog';
 import { ProductDetail } from './ProductDetail';
 import { useTelegramUser } from './auth';
+import { describeError } from './api';
 import { AdminPanel } from './AdminPanel';
 
 const readLocation = () => ({ path: window.location.pathname, search: window.location.search });
@@ -70,7 +71,7 @@ export function App() {
     {(auth.status === 'expired' || auth.status === 'error' || auth.status === 'forbidden') && <aside className="auth-notice" role="status">
       <p>{auth.status === 'expired' ? 'Для управления магазином откройте приложение заново из Telegram.'
         : auth.status === 'forbidden' ? 'У вашего аккаунта нет прав для управления магазином.'
-        : 'Не удалось проверить вход. Проверьте подключение и повторите попытку.'}</p>
+        : describeError(auth.error, 'Не удалось проверить вход. Проверьте подключение и повторите попытку.')}</p>
       <button className="text-button" onClick={auth.retry}>Повторить вход</button>
     </aside>}
     {catalogVisited && !isAdmin && <div hidden={Boolean(productId)}><Catalog search={location.search} onFilter={filter} onOpen={openProduct} /></div>}
