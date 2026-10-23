@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError, authorizedJson, isUnknownOutcome } from './api';
+import { invalidateCatalog } from './catalogApi';
 import { errorText } from './AdminReferences';
 import type { Brand, CosmeticType } from './AdminReferences';
 import { draftKey, draftTime, openDraftStore, readDraft, writeDraft } from './drafts';
@@ -355,7 +356,7 @@ export function AdminProducts({ telegramId }: { telegramId: string }) {
     <button disabled={status !== 'ready' || !brands.length || !types.length || opening} onClick={() => { setDraft(null); setMessage(''); }}>Добавить товар</button>
     {message && <p role="status">{message}</p>}
     {draft !== undefined && <ProductEditor key={draft ? `${draft.id}:${draft.version}` : 'new'} value={draft} telegramId={telegramId} brands={brands} types={types}
-      onClose={() => setDraft(undefined)} onReplace={product => { setDraft(product); setMessage(''); }} onSaved={product => { setDraft(product); setMessage('Товар сохранён.'); setAttempt(value => value + 1); }} />}
+      onClose={() => setDraft(undefined)} onReplace={product => { setDraft(product); setMessage(''); }} onSaved={product => { invalidateCatalog(); setDraft(product); setMessage('Товар сохранён.'); setAttempt(value => value + 1); }} />}
     {status === 'loading' ? <p role="status">Загружаем товары…</p> : status === 'error'
       ? <div role="alert"><p>Не удалось загрузить товары.</p><button onClick={() => setAttempt(value => value + 1)}>Повторить</button></div>
       : <><ul className="admin-list">{data?.items.length === 0 && <li>Товаров пока нет.</li>}{data?.items.map(product => <li key={product.id}>

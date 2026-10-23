@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { getJson, formatPrice, localImage } from './api';
+import { formatPrice, localImage } from './api';
+import { loadReferences, sharedGet } from './catalogApi';
 import type { CatalogOption, ProductPage, ProductSummary } from './api';
 
-type CatalogState = {
-  items: ProductSummary[]; brands: CatalogOption[]; types: CatalogOption[];
-  hasMore: boolean; page: number; status: 'loading' | 'ready' | 'error'; moreError: boolean;
+type ProductsState = {
+  items: ProductSummary[]; hasMore: boolean; page: number; status: 'loading' | 'ready' | 'error'; moreError: boolean;
 };
-const empty: CatalogState = { items: [], brands: [], types: [], hasMore: false, page: 1, status: 'loading', moreError: false };
+type ReferencesState = { brands: CatalogOption[]; types: CatalogOption[]; status: 'loading' | 'ready' | 'error' };
+const noProducts: ProductsState = { items: [], hasMore: false, page: 1, status: 'loading', moreError: false };
 
 export function ProductImage({ path, name }: { path: string | null; name: string }) {
   const [failed, setFailed] = useState(false);
@@ -28,29 +29,41 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
   if (brandId) filterKey.set('brandId', brandId);
   if (typeId) filterKey.set('typeId', typeId);
   const key = filterKey.toString();
-  const [state, setState] = useState<CatalogState>(empty);
+  const [state, setState] = useState<ProductsState>(noProducts);
+  const [references, setReferences] = useState<ReferencesState>({ brands: [], types: [], status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [referencesAttempt, setReferencesAttempt] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const moreRequest = useRef<AbortController | null>(null);
   const requestKey = useRef('');
 
+  // U01: products of the current filter. The previous list stays on screen, marked, until the new answer;
+  // an answer for an earlier filter is dropped because its request is aborted first.
   useEffect(() => {
     const controller = new AbortController();
     requestKey.current = key;
     moreRequest.current?.abort();
     setLoadingMore(false);
-    setState(previous => ({ ...previous, items: [], status: 'loading', moreError: false, hasMore: false }));
-    Promise.all([
-      getJson<ProductPage>(`/api/catalog/products?${key}`, controller.signal),
-      getJson<CatalogOption[]>('/api/catalog/brands', controller.signal),
-      getJson<CatalogOption[]>('/api/catalog/types', controller.signal),
-    ]).then(([page, brands, types]) => {
-      if (!controller.signal.aborted) setState({ ...page, brands, types, status: 'ready', moreError: false });
+    setState(previous => ({ ...previous, status: 'loading', moreError: false }));
+    sharedGet<ProductPage>(`/api/catalog/products?${key}`, controller.signal).then(page => {
+      if (!controller.signal.aborted) setState({ ...page, status: 'ready', moreError: false });
     }).catch(() => {
       if (!controller.signal.aborted) setState(previous => ({ ...previous, status: 'error' }));
     });
     return () => { controller.abort(); moreRequest.current?.abort(); };
   }, [key, attempt]);
+
+  // Brands and types, independent of products: their failure never hides the catalog.
+  useEffect(() => {
+    const controller = new AbortController();
+    setReferences(previous => ({ ...previous, status: 'loading' }));
+    loadReferences(controller.signal).then(value => {
+      if (!controller.signal.aborted) setReferences({ ...value, status: 'ready' });
+    }).catch(() => {
+      if (!controller.signal.aborted) setReferences(previous => ({ ...previous, status: 'error' }));
+    });
+    return () => controller.abort();
+  }, [referencesAttempt]);
 
   function filter(name: string, value: string) {
     const next = new URLSearchParams(key);
@@ -59,13 +72,13 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
   }
 
   async function loadMore() {
-    if (loadingMore || !state.hasMore) return;
+    if (loadingMore || !state.hasMore || state.status !== 'ready') return;
     const controller = new AbortController();
     moreRequest.current = controller;
     setLoadingMore(true);
     setState(previous => ({ ...previous, moreError: false }));
     try {
-      const page = await getJson<ProductPage>(`/api/catalog/products?${key}&page=${state.page + 1}`, controller.signal);
+      const page = await sharedGet<ProductPage>(`/api/catalog/products?${key}&page=${state.page + 1}`, controller.signal);
       if (!controller.signal.aborted && requestKey.current === key) {
         setState(previous => ({ ...previous, items: [...previous.items, ...page.items], page: page.page, hasMore: page.hasMore }));
       }
@@ -75,6 +88,8 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
       if (!controller.signal.aborted) setLoadingMore(false);
     }
   }
+
+  const refreshing = state.status === 'loading' && state.items.length > 0;
 
   function options(values: CatalogOption[], selected: string) {
     return <>{selected && !values.some(option => option.id === selected)
@@ -88,20 +103,28 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
       <div className="care-banner"><img src="/images/design/care-hero.webp" alt="" fetchPriority="high" />
         <p>Каждый день —<br />для себя.</p></div>
     </section>
-    <div className="catalog-heading"><h2 id="catalog-title" tabIndex={-1}>Каталог</h2></div>
+    <div className="catalog-heading"><h2 id="catalog-title" tabIndex={-1}>Каталог</h2>
+      {refreshing && <span className="refresh-note" aria-hidden="true">Обновляем…</span>}</div>
     <section className="filters" aria-label="Фильтры каталога">
       <label><span className="sr-only">Бренд</span><select aria-label="Бренд" value={brandId} onChange={event => filter('brandId', event.target.value)}>
-        <option value="">Все бренды</option>{options(state.brands, brandId)}</select></label>
+        <option value="">Все бренды</option>{options(references.brands, brandId)}</select></label>
       <label><span className="sr-only">Тип косметики</span><select aria-label="Тип косметики" value={typeId} onChange={event => filter('typeId', event.target.value)}>
-        <option value="">Все типы</option>{options(state.types, typeId)}</select></label>
+        <option value="">Все типы</option>{options(references.types, typeId)}</select></label>
       {(brandId || typeId) && <button className="text-button" onClick={() => onFilter('')}>Сбросить</button>}
     </section>
-    {state.types.length > 0 && <div className="type-shortcuts" role="group" aria-label="Быстрый выбор типа косметики">
+    <div className="catalog-status" role="status">
+      {references.status === 'error' && <p>Фильтры временно недоступны.{' '}
+        <button className="text-button" onClick={() => setReferencesAttempt(value => value + 1)}>Повторить</button></p>}
+      {refreshing && <p className="sr-only">Обновляем каталог…</p>}{/* shown next to the heading, so the list does not jump */}
+      {state.status === 'error' && state.items.length > 0 && <p>Не удалось обновить каталог, показаны прежние товары.{' '}
+        <button className="text-button" onClick={() => setAttempt(value => value + 1)}>Попробовать снова</button></p>}
+    </div>
+    {references.types.length > 0 && <div className="type-shortcuts" role="group" aria-label="Быстрый выбор типа косметики">
       <button aria-pressed={!typeId} onClick={() => filter('typeId', '')}>Всё</button>
-      {state.types.map(type => <button key={type.id} aria-pressed={type.id === typeId}
+      {references.types.map(type => <button key={type.id} aria-pressed={type.id === typeId}
         onClick={() => filter('typeId', type.id)}>{type.name}</button>)}
     </div>}
-    {state.status !== 'ready' || state.items.length === 0 ? <section className="empty-state" aria-live="polite" aria-busy={state.status === 'loading'}>
+    {state.items.length === 0 ? <section className="empty-state" aria-live="polite" aria-busy={state.status === 'loading'}>
       <h2>{state.status === 'loading' ? 'Загружаем косметику…' : state.status === 'error'
         ? 'Не удалось загрузить каталог' : brandId || typeId ? 'Ничего не найдено' : 'Каталог скоро появится'}</h2>
       <p>{state.status === 'error' ? 'Проверьте подключение и попробуйте ещё раз.'
@@ -109,7 +132,7 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
           ? 'Попробуйте изменить или сбросить фильтры.' : 'Здесь появятся товары и цены.'}</p>
       {state.status === 'error' && <button onClick={() => setAttempt(value => value + 1)}>Попробовать снова</button>}
     </section> : <>
-      <section className="product-grid" aria-label="Товары">
+      <section className="product-grid" aria-label="Товары" aria-busy={refreshing}>
         {state.items.map(product => <article className="product-card" key={product.id}>
           <a href={`/products/${product.id}${search}`} onClick={event => {
             if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
@@ -124,7 +147,7 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
       </section>
       <div className="pagination" aria-live="polite">
         {state.moreError && <p role="alert">Не удалось загрузить следующие товары. Попробуйте ещё раз.</p>}
-        {state.hasMore && <button disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? 'Загружаем…' : 'Показать ещё'}</button>}
+        {state.hasMore && state.status === 'ready' && <button disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? 'Загружаем…' : 'Показать ещё'}</button>}
       </div>
     </>}
   </>;

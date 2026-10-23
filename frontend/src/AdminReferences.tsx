@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { authorizedJson, describeError } from './api';
+import { invalidateCatalog } from './catalogApi';
 
 export type Brand = { id: string; name: string; description: string | null };
 export type CosmeticType = { id: string; name: string };
@@ -38,7 +39,7 @@ export function AdminReferences() {
     try {
       await authorizedJson(`/api/admin/${tab}${id ? `/${id}` : ''}`, id ? 'PUT' : 'POST',
         { name, ...(tab === 'brands' ? { description } : {}) }, controller.signal);
-      if (!controller.signal.aborted) { reset(); setMessage('Сохранено.'); setAttempt(value => value + 1); }
+      if (!controller.signal.aborted) { invalidateCatalog(); reset(); setMessage('Сохранено.'); setAttempt(value => value + 1); }
     } catch (error) { if (!controller.signal.aborted) setMessage(errorText(error)); }
     finally { if (!controller.signal.aborted) setSaving(false); }
   }

@@ -31,6 +31,7 @@ if (args.Length == 2 && args[0] == "--grant-admin")
     return;
 }
 app.UseRequestDiagnostics();
+app.UsePrivateResponsesNoStore();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseForwardedHeaders();
