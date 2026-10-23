@@ -1,9 +1,9 @@
 const assert = require('node:assert/strict');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {launch} = require('./browser.cjs');
 const base = process.env.SHOP_UI_URL || 'http://127.0.0.1:5173';
 // R07: a version conflict shows what the other admin changed and never overwrites anything silently.
 (async () => {
- const browser=await chromium.launch({channel:'msedge',headless:true});
+ const browser=await launch();
  try {
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));

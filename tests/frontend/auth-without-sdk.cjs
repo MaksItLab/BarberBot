@@ -1,11 +1,11 @@
 const assert = require('node:assert/strict');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {launch} = require('./browser.cjs');
 const base = process.env.SHOP_UI_URL || 'http://127.0.0.1:5173';
 // Deliberately fake launch data. Only mocked API responses confer roles in this UI test.
 const launchData = 'user=%7B%22id%22%3A9000000001%7D&auth_date=1792051200&hash=test-only';
 const hash = new URLSearchParams({tgWebAppData:launchData,tgWebAppPlatform:'android'});
 (async () => {
-  const browser = await chromium.launch({channel:'msedge',headless:true});
+  const browser = await launch();
   try {
     async function setup(status) {
       const context = await browser.newContext({viewport:{width:390,height:844}});
