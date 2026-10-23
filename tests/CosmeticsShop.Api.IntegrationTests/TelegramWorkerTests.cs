@@ -87,8 +87,13 @@ public sealed class TelegramWorkerTests
             using var subscription = options.OnChange(value => {
                 if (value.MiniAppUrl == "https://new.example.test/") reloaded.TrySetResult();
             });
-            await File.WriteAllTextAsync(file, """{"Telegram":{"MiniAppUrl":"https://new.example.test/"}}""");
-            await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // Replaced atomically, as scripts/local-tunnel.cjs does.
+            var temporary = file + ".tmp";
+            await File.WriteAllTextAsync(temporary, """{"Telegram":{"MiniAppUrl":"https://new.example.test/"}}""");
+            File.Move(temporary, file, overwrite: true);
+            // The .NET SDK container image sets DOTNET_USE_POLLING_FILE_WATCHER=true: changes are then seen only
+            // on the next 4 s poll, so 5 s was too short there. The wait covers several polls.
+            await reloaded.Task.WaitAsync(TimeSpan.FromSeconds(15));
             Assert.Equal("https://new.example.test/", options.CurrentValue.MiniAppUrl);
             Assert.Equal("123456:test-only-secret", options.CurrentValue.BotToken);
             Assert.True(options.CurrentValue.Enabled);
