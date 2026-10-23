@@ -38,7 +38,7 @@ internal static class TestShopHost
         builder.Services.AddExceptionHandler<ShopExceptionHandler>();
         configure?.Invoke(builder);
         var app = builder.Build();
-        app.UseRequestDiagnostics(); app.UseExceptionHandler(); app.UseStatusCodePages(); app.UseForwardedHeaders(); app.UseAuthentication(); app.UseAuthorization();
+        app.UseRequestDiagnostics(); app.UsePrivateResponsesNoStore(); app.UseExceptionHandler(); app.UseStatusCodePages(); app.UseForwardedHeaders(); app.UseAuthentication(); app.UseAuthorization();
         app.MapTelegramAuthentication(); app.MapCatalog(); app.MapAdminReferences(); app.MapAdminProducts();
         return app;
     }
