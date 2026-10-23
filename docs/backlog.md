@@ -43,7 +43,7 @@
 | R03 | Claude | [PR #11](https://github.com/MaksItLab/BarberBot/pull/11) | Завершена | 23.10.2026 |
 | R09, R10 (анализ) | Claude | [PR #12](https://github.com/MaksItLab/BarberBot/pull/12) | Завершена | 23.10.2026 |
 | R10 | Claude | [PR #13](https://github.com/MaksItLab/BarberBot/pull/13) | Завершена | 23.10.2026 |
-| R09 (локальная часть) | Claude | [PR #14](https://github.com/MaksItLab/BarberBot/pull/14) | В работе | 23.10.2026 |
+| R09 (локальная часть) | Claude | [PR #14](https://github.com/MaksItLab/BarberBot/pull/14) | Завершена | 23.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 
