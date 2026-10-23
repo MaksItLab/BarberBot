@@ -50,7 +50,7 @@
 | U06 | Claude | [PR #18](https://github.com/MaksItLab/BarberBot/pull/18) | Завершена | 23.10.2026 |
 | U04 (лабораторная часть) | Claude | [PR #19](https://github.com/MaksItLab/BarberBot/pull/19) | Завершена; приёмка на устройствах ждёт | 23.10.2026 |
 | U05 (лабораторная часть) | Claude | [PR #20](https://github.com/MaksItLab/BarberBot/pull/20) | Завершена; профиль на телефоне ждёт | 23.10.2026 |
-| Журнал протокола туннеля | Claude | PR журнала | Завершена | 23.10.2026 |
+| Журнал протокола туннеля | Claude | [PR #21](https://github.com/MaksItLab/BarberBot/pull/21) | Завершена | 23.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 
