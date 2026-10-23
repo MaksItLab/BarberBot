@@ -1,7 +1,7 @@
 :root {
   font-family: Arial, 'Helvetica Neue', sans-serif;
   color: #000; background: #f0f1ee; color-scheme: light;
-  --muted: #51575a; --surface: #ffffffc9; --line: #b7bbb7;
+  --muted: #3d4245; --surface: #ffffffc9; --line: #b7bbb7;
   --paper: #fff; --accent: #d8ff2a;
   font-synthesis: none; text-rendering: optimizeLegibility;
 }
@@ -49,9 +49,9 @@ select option { background: #fff; color: #000; }
 .product-card a { display: block; color: inherit; text-decoration: none; }
 .product-image { position: relative; display: grid; place-items: center; aspect-ratio: 1; background: #e8e9e0; border-radius: 5px; overflow: hidden; }
 .product-image > img { display: block; width: 100%; height: 100%; object-fit: contain; }
-.image-placeholder { position: relative; width: 100%; height: 100%; }
+.image-placeholder { position: absolute; inset: 0; } /* fills the image box, so the caption stays inside it */
 .image-placeholder img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.placeholder-caption { position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; background: #ffffffed; color: #3b4240; border-radius: 3px; font-size: 9px; line-height: 1.4; }
+.placeholder-caption { position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; background: #ffffffed; color: #3b4240; border-radius: 3px; font-size: 11px; line-height: 1.4; }
 .product-brand { margin: 12px 0 5px; font-size: 11px; line-height: 1.5; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; overflow-wrap: anywhere; }
 .product-card h2 { font-size: 16px; line-height: 1.35; margin: 0; font-weight: 400; overflow-wrap: anywhere; }
 .product-price { font-size: 18px; font-weight: 600; margin: 7px 0 0; }
@@ -104,7 +104,7 @@ h2 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 24px 0 10px; }
 .product-editor > fieldset { min-width: 0; border: 0; padding: 0; }
 .product-editor legend { font-size: 18px; margin-bottom: 12px; }
 .product-editor .variant-editor { min-width: 0; border: 1px solid #a5ada6; border-radius: 8px; padding: 18px; margin: 18px 0; }
-.admin-form .checkbox-label { display: flex; align-items: center; gap: 12px; line-height: 1.5; }
+.admin-form .checkbox-label { display: flex; align-items: center; gap: 12px; min-height: 44px; line-height: 1.5; }
 .admin-form input[type='checkbox'] { min-height: 20px; width: 20px; height: 20px; flex-shrink: 0; accent-color: #000; }
 .admin-form [aria-invalid='true'] { border: 2px solid #a1261b; }
 .field-error { display: block; margin: -10px 0 16px; color: #a1261b; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -128,9 +128,9 @@ h2 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 24px 0 10px; }
   .product-grid { gap: 28px 12px; }
   .product-card h2 { font-size: 14px; }
   .product-price { font-size: 16px; }
-  .product-brand { font-size: 10px; }
+  .product-brand { font-size: 11px; }
   .detail-layout { grid-template-columns: minmax(0,1fr); gap: 20px; }
-  .detail-layout > .product-image { position: static; width: 100%; height: clamp(180px,30svh,260px); aspect-ratio: auto; margin: 0 auto; }
+  .detail-layout > .product-image { position: relative; width: 100%; height: clamp(180px,30svh,260px); aspect-ratio: auto; margin: 0 auto; }
   .detail-layout .image-placeholder img { object-fit: contain; }
   .detail h1 { font-size: 28px; }
   .admin-form { padding: 16px; }
@@ -146,3 +146,5 @@ h2 { font-size: 19px; line-height: 1.4; font-weight: 600; margin: 24px 0 10px; }
 .catalog-status p { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
 .product-grid[aria-busy="true"] { opacity: .55; transition: opacity .2s; }
 @media (prefers-reduced-motion: reduce) { .product-grid[aria-busy="true"] { transition: none; } }
+.form-status:empty { margin: 0; }
+.admin-section h1:focus:not(:focus-visible) { outline: none; }

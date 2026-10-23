@@ -354,7 +354,7 @@ export function AdminProducts({ telegramId }: { telegramId: string }) {
     <h2>Товары</h2>
     {status === 'ready' && (!brands.length || !types.length) && <p>Сначала добавьте бренд и тип косметики в справочниках.</p>}
     <button disabled={status !== 'ready' || !brands.length || !types.length || opening} onClick={() => { setDraft(null); setMessage(''); }}>Добавить товар</button>
-    {message && <p role="status">{message}</p>}
+    <p role="status" className="form-status">{message}</p>{/* always present: a region inserted with its text is often not announced */}
     {draft !== undefined && <ProductEditor key={draft ? `${draft.id}:${draft.version}` : 'new'} value={draft} telegramId={telegramId} brands={brands} types={types}
       onClose={() => setDraft(undefined)} onReplace={product => { setDraft(product); setMessage(''); }} onSaved={product => { invalidateCatalog(); setDraft(product); setMessage('Товар сохранён.'); setAttempt(value => value + 1); }} />}
     {status === 'loading' ? <p role="status">Загружаем товары…</p> : status === 'error'

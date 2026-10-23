@@ -44,9 +44,17 @@ export function App() {
     window.addEventListener('popstate', pop);
     return () => { disconnect(); window.removeEventListener('load', initialize); window.removeEventListener('popstate', pop); };
   }, []);
+  // U06: back on the catalog, focus returns to what opened the screen; the admin screen focuses its heading.
+  const returnFocus = useRef<string | null>(null);
+  const adminTitle = useRef<HTMLHeadingElement>(null);
   useLayoutEffect(() => {
     if (!productId) setCatalogVisited(true);
     window.scrollTo(0, onCatalog ? savedCatalog(catalogGeneration)?.scroll ?? 0 : 0);
+    if (isAdmin) adminTitle.current?.focus({ preventScroll: true });
+    if (onCatalog && returnFocus.current) {
+      document.querySelector<HTMLElement>(returnFocus.current)?.focus({ preventScroll: true });
+      returnFocus.current = null;
+    }
   }, [productId, isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps -- only on a screen change
 
   function back() {
@@ -82,7 +90,10 @@ export function App() {
     if (window.location.pathname === '/')
       window.history.replaceState({ ...catalogEntry(), catalogPages: pages, catalogGeneration }, '', window.location.href);
   }
-  const openProduct = (id: string) => leaveCatalog({ shopProduct: true }, `/products/${encodeURIComponent(id)}${location.search}`);
+  function openProduct(id: string) {
+    returnFocus.current = `[data-product-id="${CSS.escape(id)}"]`;
+    leaveCatalog({ shopProduct: true }, `/products/${encodeURIComponent(id)}${location.search}`);
+  }
   return <main className="store">
     <header className="store-header"><a className="store-identity" href="/" onClick={event => {
       if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
@@ -91,7 +102,8 @@ export function App() {
     }} aria-label="Магазин косметики — в каталог"><span className="brand-mark" aria-hidden="true">C<span>•</span></span>
       <span className="brand-title">КОСМЕТИКА</span></a></header>
     {auth.user?.role === 'Admin' && <p className="eyebrow">Администратор</p>}
-    {auth.user?.role === 'Admin' && !isAdmin && <button className="text-button" onClick={() => {
+    {auth.user?.role === 'Admin' && !isAdmin && <button className="text-button admin-entry" onClick={() => {
+      returnFocus.current = '.admin-entry';
       if (window.location.pathname === '/') leaveCatalog({ shopAdmin: true }, '/admin');
       else { window.history.pushState({ shopAdmin: true, catalogGeneration }, '', '/admin'); setLocation(readLocation()); }
     }}>Управление магазином</button>}
@@ -109,7 +121,7 @@ export function App() {
     {catalogVisited && <div hidden={!onCatalog}><Catalog key={catalogGeneration} search={catalogSearch.current} active={onCatalog}
       restore={onCatalog ? savedCatalog(catalogGeneration) : null} onPages={rememberPages} onFilter={filter} onOpen={openProduct} /></div>}
     {productId && <ProductDetail key={productId} id={productId} onBack={back} />}
-    {isAdmin && <section className="admin-section"><button className="text-button back-button" onClick={back}>← В каталог</button><p className="eyebrow">Рабочее пространство</p><h1>Управление магазином</h1>
+    {isAdmin && <section className="admin-section"><button className="text-button back-button" onClick={back}>← В каталог</button><p className="eyebrow">Рабочее пространство</p><h1 ref={adminTitle} tabIndex={-1}>Управление магазином</h1>
       {auth.user?.role === 'Admin' ? <AdminPanel telegramId={auth.user.telegramId} /> : <p role="status">{auth.status === 'loading' ? 'Проверяем права…' : 'Управление доступно администратору при входе через Telegram.'}</p>}
     </section>}
     <footer className="store-footer"><span>КОСМЕТИКА / ТВОЙ ВЫБОР</span><a href="#top" onClick={event => { event.preventDefault(); window.scrollTo({top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'}); }}>Наверх ↑</a></footer>

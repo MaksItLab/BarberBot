@@ -9,6 +9,8 @@ type ProductsState = {
 type ReferencesState = { brands: CatalogOption[]; types: CatalogOption[]; status: 'loading' | 'ready' | 'error' };
 /** U07: what the catalog's history entry remembers, to rebuild the list after a reload. */
 export type CatalogRestore = { scroll: number; pages: number };
+const plural = new Intl.PluralRules('ru-RU');
+const productsWord = (count: number) => ({ one: 'товар', few: 'товара' } as Record<string, string>)[plural.select(count)] ?? 'товаров';
 const noProducts: ProductsState = { items: [], hasMore: false, page: 1, status: 'loading', moreError: false };
 
 export function ProductImage({ path, name }: { path: string | null; name: string }) {
@@ -46,6 +48,7 @@ export function Catalog({ search, active, restore, onPages, onFilter, onOpen }: 
   const activeRef = useRef(active);
   activeRef.current = active;
   const [pendingScroll, setPendingScroll] = useState<number | null>(null);
+  const [shown, setShown] = useState(''); // announced after "Показать ещё", which adds cards out of the reader's sight
   useLayoutEffect(() => {
     if (pendingScroll === null) return;
     if (activeRef.current) window.scrollTo(0, pendingScroll);
@@ -60,6 +63,7 @@ export function Catalog({ search, active, restore, onPages, onFilter, onOpen }: 
     moreRequest.current?.abort();
     setLoadingMore(false);
     setState(previous => ({ ...previous, status: 'loading', moreError: false }));
+    setShown('');
     const wanted = restoreRef.current?.key === key ? restoreRef.current : null;
     (async () => {
       let page = await sharedGet<ProductPage>(`/api/catalog/products?${key}`, controller.signal);
@@ -109,7 +113,9 @@ export function Catalog({ search, active, restore, onPages, onFilter, onOpen }: 
     try {
       const page = await sharedGet<ProductPage>(`/api/catalog/products?${key}&page=${state.page + 1}`, controller.signal);
       if (!controller.signal.aborted && requestKey.current === key) {
+        const count = state.items.length + page.items.length;
         setState(previous => ({ ...previous, items: [...previous.items, ...page.items], page: page.page, hasMore: page.hasMore }));
+        setShown(`Показано ${count} ${productsWord(count)}.`);
         onPages(page.page);
       }
     } catch {
@@ -145,7 +151,8 @@ export function Catalog({ search, active, restore, onPages, onFilter, onOpen }: 
     <div className="catalog-status" role="status">
       {references.status === 'error' && <p>Фильтры временно недоступны.{' '}
         <button className="text-button" onClick={() => setReferencesAttempt(value => value + 1)}>Повторить</button></p>}
-      {refreshing && <p className="sr-only">Обновляем каталог…</p>}{/* shown next to the heading, so the list does not jump */}
+      {refreshing && <p className="sr-only">Обновляем каталог…</p>}
+      {shown && <p className="sr-only">{shown}</p>}{/* shown next to the heading, so the list does not jump */}
       {state.status === 'error' && state.items.length > 0 && <p>Не удалось обновить каталог, показаны прежние товары.{' '}
         <button className="text-button" onClick={() => setAttempt(value => value + 1)}>Попробовать снова</button></p>}
     </div>
@@ -164,7 +171,7 @@ export function Catalog({ search, active, restore, onPages, onFilter, onOpen }: 
     </section> : <>
       <section className="product-grid" aria-label="Товары" aria-busy={refreshing}>
         {state.items.map(product => <article className="product-card" key={product.id}>
-          <a href={`/products/${product.id}${search}`} onClick={event => {
+          <a href={`/products/${product.id}${search}`} data-product-id={product.id} onClick={event => {
             if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
               event.preventDefault(); onOpen(product.id);
             }
