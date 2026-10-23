@@ -8,6 +8,7 @@ using CosmeticsShop.Contracts.Admin;
 using CosmeticsShop.Domain;
 using CosmeticsShop.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 
 namespace CosmeticsShop.Infrastructure.Admin;
@@ -72,7 +73,7 @@ public sealed class AdminProducts(ShopDbContext db, TimeProvider clock) : IAdmin
         var product = id is null ? new Product { Name = input.Name, Description = input.Description }
             : await db.Products.Include(product => product.Variants).SingleOrDefaultAsync(product => product.Id == id, cancellationToken)
                 ?? throw new ShopFailureException(ShopFailureKind.NotFound, "Товар не найден.");
-        if (id is not null && product.Version != DecodeVersion(request.Version)) Conflict();
+        if (id is not null && product.Version != DecodeVersion(request.Version)) await ConflictAsync(product.Id, transaction, cancellationToken);
         if (input.Variants.Any(value => value.Id is { } variantId && !product.Variants.Any(existing => existing.Id == variantId)))
             throw new ShopFailureException(ShopFailureKind.Invalid, "Вариант не принадлежит этому товару.");
         if (product.Variants.Any(existing => !input.Variants.Any(value => value.Id == existing.Id)))
@@ -108,7 +109,7 @@ public sealed class AdminProducts(ShopDbContext db, TimeProvider clock) : IAdmin
             await transaction.CommitAsync(cancellationToken);
             return new(Response(product), false);
         }
-        catch (DbUpdateConcurrencyException) { Conflict(); throw; }
+        catch (DbUpdateConcurrencyException) { await ConflictAsync(product.Id, transaction, cancellationToken); throw; }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         { throw new ShopFailureException(ShopFailureKind.Conflict, "У товара уже есть вариант с такими характеристиками."); }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
@@ -134,7 +135,14 @@ public sealed class AdminProducts(ShopDbContext db, TimeProvider clock) : IAdmin
     private static byte[] Fingerprint(string kind, long? id, string? version, ValidProduct input) =>
         SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { kind, id, version = id is null ? null : version, input }));
 
-    private static void Conflict() => throw new ShopFailureException(ShopFailureKind.Conflict, "Товар уже изменён другим администратором. Скопируйте свои изменения и заново откройте товар.");
+    /// <summary>Rolls back and reports the conflict with the product as it is now, so nothing is overwritten silently.</summary>
+    private async Task ConflictAsync(long id, IDbContextTransaction transaction, CancellationToken cancellationToken)
+    {
+        await transaction.RollbackAsync(cancellationToken);
+        db.ChangeTracker.Clear();
+        var current = await GetProductAsync(id, cancellationToken);
+        throw new ShopFailureException(ShopFailureKind.Conflict, "Товар уже изменён другим администратором.", current);
+    }
     private static uint DecodeVersion(string? value)
     {
         Span<byte> buffer = stackalloc byte[4];

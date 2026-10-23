@@ -2,9 +2,11 @@ namespace CosmeticsShop.Application.Common;
 
 public enum ShopFailureKind { Invalid, Conflict, NotFound, KeyReused }
 
-public sealed class ShopFailureException(ShopFailureKind kind, string message) : Exception(message)
+/// <param name="current">For a version conflict: the current state, so the client can show what changed without losing its input.</param>
+public sealed class ShopFailureException(ShopFailureKind kind, string message, object? current = null) : Exception(message)
 {
     public ShopFailureKind Kind { get; } = kind;
+    public object? Current { get; } = current;
 }
 
 public static class InputRules

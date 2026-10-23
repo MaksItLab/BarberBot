@@ -19,7 +19,7 @@ public sealed class ShopExceptionHandler : IExceptionHandler
                 ShopFailureKind.KeyReused => (422, ShopErrorCodes.IdempotencyKeyReused),
                 _ => (500, ShopErrorCodes.InternalError)
             };
-            await Problem(context, status, failure.Message, code);
+            await Problem(context, status, failure.Message, code, failure.Current);
             return true;
         }
         if (IsDatabaseUnavailable(exception))
@@ -41,6 +41,10 @@ public sealed class ShopExceptionHandler : IExceptionHandler
         return false;
     }
 
-    private static Task Problem(HttpContext context, int status, string title, string code) =>
-        Results.Problem(statusCode: status, title: title, extensions: new Dictionary<string, object?> { ["code"] = code }).ExecuteAsync(context);
+    private static Task Problem(HttpContext context, int status, string title, string code, object? current = null)
+    {
+        var extensions = new Dictionary<string, object?> { ["code"] = code };
+        if (current is not null) extensions["current"] = current;
+        return Results.Problem(statusCode: status, title: title, extensions: extensions).ExecuteAsync(context);
+    }
 }
