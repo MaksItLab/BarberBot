@@ -6,6 +6,7 @@ import { useTelegramUser } from './auth';
 import { describeError } from './api';
 import { AdminPanel } from './AdminPanel';
 import { onCatalogChange } from './catalogApi';
+import { keepFocusedFieldVisible } from './keyboard';
 import type { CatalogRestore } from './Catalog';
 
 const readLocation = () => ({ path: window.location.pathname, search: window.location.search });
@@ -35,6 +36,7 @@ export function App() {
   // The admin address has no filter: the hidden catalog keeps the one it was left with.
   const catalogSearch = useRef(location.search);
   if (onCatalog || productId) catalogSearch.current = location.search;
+  useEffect(keepFocusedFieldVisible, []);
   useEffect(() => {
     window.history.scrollRestoration = 'manual';
     let disconnect = connectTelegram();
