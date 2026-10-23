@@ -166,7 +166,7 @@ public sealed class CatalogSchemaTests(PostgresFixture fixture) : IClassFixture<
     public void ExistingMigrationIdentityIsPreserved()
     {
         using var db = fixture.CreateContext();
-        Assert.Equal(["20261015081714_InitialCatalog", "20261015090947_ProductConcurrency"], db.Database.GetMigrations());
+        Assert.Equal(["20261015081714_InitialCatalog", "20261015090947_ProductConcurrency", "20261022113732_SaveOperations"], db.Database.GetMigrations());
     }
 
     [Fact]

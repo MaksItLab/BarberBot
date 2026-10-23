@@ -106,3 +106,22 @@ internal sealed class ShopUserConfiguration : IEntityTypeConfiguration<ShopUser>
         builder.HasIndex(user => user.TelegramId).IsUnique().HasDatabaseName("ux_users_telegram_id");
     }
 }
+
+internal sealed class SaveOperationConfiguration : IEntityTypeConfiguration<SaveOperation>
+{
+    public void Configure(EntityTypeBuilder<SaveOperation> builder)
+    {
+        builder.ToTable("save_operations", table =>
+            table.HasCheckConstraint("ck_save_operations_kind", $"kind IN ('{SaveOperation.CreateProduct}', '{SaveOperation.UpdateProduct}')"));
+        // The key is looked up only together with its owner, so one admin can never read another admin's result.
+        builder.HasKey(operation => new { operation.OwnerTelegramId, operation.Key }).HasName("pk_save_operations");
+        builder.Property(operation => operation.OwnerTelegramId).HasColumnName("owner_telegram_id");
+        builder.Property(operation => operation.Key).HasColumnName("key");
+        builder.Property(operation => operation.Kind).HasColumnName("kind").HasMaxLength(32).IsRequired();
+        builder.Property(operation => operation.Fingerprint).HasColumnName("fingerprint").HasMaxLength(32).IsRequired();
+        builder.Property(operation => operation.ProductId).HasColumnName("product_id");
+        builder.Property(operation => operation.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("CURRENT_TIMESTAMP");
+        builder.HasOne<Product>().WithMany().HasForeignKey(operation => operation.ProductId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(operation => operation.CreatedAt).HasDatabaseName("ix_save_operations_created_at");
+    }
+}

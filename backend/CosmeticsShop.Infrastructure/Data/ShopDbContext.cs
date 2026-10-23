@@ -10,6 +10,7 @@ public sealed class ShopDbContext(DbContextOptions<ShopDbContext> options) : DbC
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<ShopUser> Users => Set<ShopUser>();
+    public DbSet<SaveOperation> SaveOperations => Set<SaveOperation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
         => modelBuilder.ApplyConfigurationsFromAssembly(typeof(ShopDbContext).Assembly);

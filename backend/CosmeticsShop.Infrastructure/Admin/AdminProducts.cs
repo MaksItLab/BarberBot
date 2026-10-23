@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text.Json;
 using CosmeticsShop.Application.Admin;
 using CosmeticsShop.Application.Catalog;
 using CosmeticsShop.Application.Common;
@@ -10,7 +12,7 @@ using Npgsql;
 
 namespace CosmeticsShop.Infrastructure.Admin;
 
-public sealed class AdminProducts(ShopDbContext db) : IAdminProducts
+public sealed class AdminProducts(ShopDbContext db, TimeProvider clock) : IAdminProducts
 {
     public async Task<AdminProductPage> GetProductsAsync(CatalogQuery query, CancellationToken cancellationToken)
     {
@@ -31,9 +33,39 @@ public sealed class AdminProducts(ShopDbContext db) : IAdminProducts
         return Response(product);
     }
 
-    public async Task<AdminProduct> SaveAsync(long? id, SaveProductRequest request, CancellationToken cancellationToken)
+    public async Task<SaveOperationResponse?> FindOperationAsync(SaveIntent intent, CancellationToken cancellationToken)
+    {
+        var operation = await FindAsync(intent, cancellationToken);
+        return operation?.ProductId is { } productId ? new(operation.Kind, productId.ToString()) : null;
+    }
+
+    public async Task<SaveResult> SaveAsync(long? id, SaveProductRequest request, SaveIntent intent, CancellationToken cancellationToken)
     {
         var input = ProductRules.Validate(request);
+        var kind = id is null ? SaveOperation.CreateProduct : SaveOperation.UpdateProduct;
+        var fingerprint = Fingerprint(kind, id, request.Version, input);
+        if (await ReplayAsync(intent, kind, fingerprint, cancellationToken) is { } replay) return replay;
+        var expired = clock.GetUtcNow().UtcDateTime - SaveOperation.Retention;
+        await db.SaveOperations.Where(operation => operation.OwnerTelegramId == intent.OwnerTelegramId && operation.CreatedAt < expired)
+            .ExecuteDeleteAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var operation = new SaveOperation { OwnerTelegramId = intent.OwnerTelegramId, Key = intent.Key, Kind = kind, Fingerprint = fingerprint };
+        try
+        {
+            // First statement of the transaction: a concurrent request with the same key waits here
+            // until the other one commits or rolls back, so the product is never written twice
+            // and the version check below never sees this key's own committed change.
+            db.SaveOperations.Add(operation);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+            { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "pk_save_operations" })
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            db.ChangeTracker.Clear();
+            return await ReplayAsync(intent, kind, fingerprint, cancellationToken)
+                ?? throw new InvalidOperationException("A save operation conflicted but could not be read back.");
+        }
         if (!await db.Brands.AnyAsync(brand => brand.Id == input.BrandId, cancellationToken)
             || !await db.CosmeticTypes.AnyAsync(type => type.Id == input.TypeId, cancellationToken))
             throw new ShopFailureException(ShopFailureKind.Invalid, "Выберите существующий бренд и тип косметики.");
@@ -45,7 +77,6 @@ public sealed class AdminProducts(ShopDbContext db) : IAdminProducts
             throw new ShopFailureException(ShopFailureKind.Invalid, "Вариант не принадлежит этому товару.");
         if (product.Variants.Any(existing => !input.Variants.Any(value => value.Id == existing.Id)))
             throw new ShopFailureException(ShopFailureKind.Invalid, "Существующие варианты нельзя удалять. Скройте ненужные варианты.");
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
             if (id is null) db.Products.Add(product);
@@ -72,8 +103,10 @@ public sealed class AdminProducts(ShopDbContext db) : IAdminProducts
                 variant.PriceRub = value.PriceRub; variant.IsVisible = value.IsVisible;
             }
             await db.SaveChangesAsync(cancellationToken);
+            operation.ProductId = product.Id;
+            await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return Response(product);
+            return new(Response(product), false);
         }
         catch (DbUpdateConcurrencyException) { Conflict(); throw; }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
@@ -81,6 +114,25 @@ public sealed class AdminProducts(ShopDbContext db) : IAdminProducts
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
         { throw new ShopFailureException(ShopFailureKind.Invalid, "Бренд или тип больше не существует. Обновите справочники."); }
     }
+
+    private Task<SaveOperation?> FindAsync(SaveIntent intent, CancellationToken cancellationToken) =>
+        db.SaveOperations.AsNoTracking().SingleOrDefaultAsync(operation =>
+            operation.OwnerTelegramId == intent.OwnerTelegramId && operation.Key == intent.Key, cancellationToken);
+
+    /// <summary>Returns the current state of the product saved earlier with this key, or null when the key is new.</summary>
+    private async Task<SaveResult?> ReplayAsync(SaveIntent intent, string kind, byte[] fingerprint, CancellationToken cancellationToken)
+    {
+        var operation = await FindAsync(intent, cancellationToken);
+        if (operation is null) return null;
+        if (operation.Kind != kind || !CryptographicOperations.FixedTimeEquals(operation.Fingerprint, fingerprint) || operation.ProductId is not { } productId)
+            throw new ShopFailureException(ShopFailureKind.KeyReused,
+                "Этот ключ сохранения уже использован для других данных. Обновите страницу и повторите.");
+        return new(await GetProductAsync(productId, cancellationToken), true);
+    }
+
+    /// <summary>SHA-256 of the normalized input, so spacing or "," vs "." in a price do not look like different data.</summary>
+    private static byte[] Fingerprint(string kind, long? id, string? version, ValidProduct input) =>
+        SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { kind, id, version = id is null ? null : version, input }));
 
     private static void Conflict() => throw new ShopFailureException(ShopFailureKind.Conflict, "Товар уже изменён другим администратором. Скопируйте свои изменения и заново откройте товар.");
     private static uint DecodeVersion(string? value)

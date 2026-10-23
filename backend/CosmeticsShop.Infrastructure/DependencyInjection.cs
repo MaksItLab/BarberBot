@@ -15,12 +15,19 @@ using Microsoft.Extensions.Options;
 
 namespace CosmeticsShop.Infrastructure;
 
+public static class ShopDatabase
+{
+    public const int CommandTimeoutSeconds = 10;
+}
+
 public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // A database command ends before the interface gives up (15 s for reads, 30 s for saves),
+        // so the client gets a definite answer more often than a timeout.
         services.AddDbContext<ShopDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("Shop")));
+            options.UseNpgsql(configuration.GetConnectionString("Shop"), npgsql => npgsql.CommandTimeout(ShopDatabase.CommandTimeoutSeconds)));
         services.AddScoped<IApplicationReadiness, DatabaseReadiness>();
         services.AddScoped<ICatalogReader, CatalogReader>();
         services.AddScoped<IUserAccess, UserAccess>();

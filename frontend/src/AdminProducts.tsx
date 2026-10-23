@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { authorizedJson } from './api';
+import { ApiError, authorizedJson, isUnknownOutcome } from './api';
 import { errorText } from './AdminReferences';
 import type { Brand, CosmeticType } from './AdminReferences';
 
@@ -23,27 +23,58 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
     key: variant.id, id: variant.id, volume: variant.volume ?? '', size: variant.size ?? '', shade: variant.shade ?? '',
     price: String(variant.priceRub), isVisible: variant.isVisible,
   })) : [newVariant()]);
-  const [saving, setSaving] = useState(false);
+  // saving → saved (parent) | failed (message) | checking → saved | not saved | unknown (check again)
+  const [phase, setPhase] = useState<'editing' | 'saving' | 'checking' | 'unknown'>('editing');
+  const saving = phase === 'saving' || phase === 'checking';
   const [message, setMessage] = useState('');
   const request = useRef<AbortController | null>(null);
+  // One key per opened form: every attempt to save it repeats the same intent. After a confirmed
+  // save the editor is remounted for the new version and gets a new key.
+  const saveKey = useRef(crypto.randomUUID());
   useEffect(() => () => request.current?.abort(), []);
   function update(key: string, patch: Partial<DraftVariant>) { setVariants(previous => previous.map(variant => variant.key === key ? { ...variant, ...patch } : variant)); }
+  /** Asks the server whether this form's save happened, without writing again. */
+  async function check(controller: AbortController) {
+    setPhase('checking'); setMessage('Уточняем, сохранился ли товар…');
+    try {
+      const operation = await authorizedJson<{ kind: string; productId: string }>(`/api/admin/operations/${saveKey.current}`, 'GET', undefined, controller.signal);
+      const product = await authorizedJson<AdminProduct>(`/api/admin/products/${operation.productId}`, 'GET', undefined, controller.signal);
+      if (!controller.signal.aborted) onSaved(product);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (error instanceof ApiError && error.code === 'operation_not_found') {
+        setPhase('editing'); setMessage('Товар не сохранён. Можно сохранить ещё раз.');
+      } else {
+        setPhase('unknown');
+        setMessage(`Не удалось уточнить, сохранился ли товар. Проверьте ещё раз или сохраните повторно: дубль не появится. ${errorText(error)}`);
+      }
+    }
+  }
+  function start(): AbortController {
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
+    return controller;
+  }
   async function save(event: React.FormEvent) {
     event.preventDefault(); if (saving) return;
     if (variants.some(variant => !/^\d+(?:[.,]\d{1,2})?$/.test(variant.price.trim()))) {
       setMessage('Укажите цену каждого варианта в рублях, не более двух знаков после запятой.'); return;
     }
-    const controller = new AbortController(); request.current = controller;
-    setSaving(true); setMessage('');
+    const controller = start();
+    setPhase('saving'); setMessage('');
     try {
       const result = await authorizedJson<AdminProduct>(`/api/admin/products${value ? `/${value.id}` : ''}`, value ? 'PUT' : 'POST', {
         name, description, brandId, typeId, imagePath, isVisible: visible, version: value?.version ?? null,
         variants: variants.map(variant => ({ id: variant.id ?? null, volume: variant.volume, size: variant.size, shade: variant.shade,
           priceRub: Number(variant.price.trim().replace(',', '.')), isVisible: variant.isVisible })),
-      }, controller.signal);
+      }, controller.signal, saveKey.current);
       if (!controller.signal.aborted) onSaved(result);
-    } catch (error) { if (!controller.signal.aborted) setMessage(errorText(error)); }
-    finally { if (!controller.signal.aborted) setSaving(false); }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      // "Saved" is shown only after confirmation; an unknown outcome is checked instead of being reported as a failure.
+      if (isUnknownOutcome(error)) { await check(controller); return; }
+      setPhase('editing'); setMessage(errorText(error));
+    }
   }
   return <form className="admin-form product-editor" onSubmit={event => void save(event)}>
     <fieldset disabled={saving}>
@@ -65,10 +96,11 @@ function ProductEditor({ value, brands, types, onSaved, onClose }: {
         {!variant.id && <button type="button" className="text-button" onClick={() => setVariants(previous => previous.filter(row => row.key !== variant.key))}>Убрать новый вариант {index + 1}</button>}
       </fieldset>)}
       <button type="button" className="text-button" disabled={variants.length >= 100} onClick={() => setVariants(previous => [...previous, newVariant()])}>Добавить вариант</button>
-      <div className="form-actions"><button>{saving ? 'Сохраняем…' : 'Сохранить товар'}</button>
+      <div className="form-actions"><button>{phase === 'saving' ? 'Сохраняем…' : phase === 'checking' ? 'Уточняем…' : 'Сохранить товар'}</button>
+        {phase === 'unknown' && <button type="button" onClick={() => void check(start())}>Проверить ещё раз</button>}
         <button type="button" className="text-button" onClick={onClose}>Закрыть форму</button></div>
     </fieldset>
-    {message && <p role="alert">{message}</p>}
+    {message && <p role={phase === 'checking' ? 'status' : 'alert'}>{message}</p>}
   </form>;
 }
 

@@ -35,6 +35,8 @@
 | R08 | Claude | [PR #1](https://github.com/MaksItLab/BarberBot/pull/1) | Ревью | 22.10.2026 |
 | R01 | Claude | [PR #3](https://github.com/MaksItLab/BarberBot/pull/3) | Завершена | 22.10.2026 |
 | R03–R07, U02, U03 | Claude | `claude/stability-analysis` | Анализ | 22.10.2026 |
+| R04 | Claude | `claude/r04-idempotent-save` | Ревью | 22.10.2026 |
+| R05, U02 | Claude | `claude/r05-u02-timeouts-result` | Ревью | 22.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 
