@@ -1,5 +1,17 @@
+type StorageCallback<T> = (error: string | null, value?: T) => void;
+/** Bot API 9.0: up to 5 MB per user on the device itself, never synced to Telegram servers. */
+export type TelegramDeviceStorage = {
+  setItem: (key: string, value: string, callback?: StorageCallback<boolean>) => void;
+  getItem: (key: string, callback: StorageCallback<string>) => void;
+  removeItem: (key: string, callback?: StorageCallback<boolean>) => void;
+};
+
 type TelegramWebApp = {
   initData?: string;
+  isVersionAtLeast?: (version: string) => boolean;
+  DeviceStorage?: TelegramDeviceStorage;
+  enableClosingConfirmation?: () => void;
+  disableClosingConfirmation?: () => void;
   ready: () => void;
   expand: () => void;
   colorScheme: 'light' | 'dark';
@@ -42,4 +54,12 @@ export function connectTelegram(): () => void {
   webApp.expand();
   webApp.onEvent('themeChanged', updateTheme);
   return () => webApp.offEvent('themeChanged', updateTheme);
+}
+
+/** Asks before closing the Mini App while a form has unsaved changes (Bot API 6.2+). Returns the undo. */
+export function confirmClosing(): () => void {
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp?.enableClosingConfirmation || !webApp.isVersionAtLeast?.('6.2')) return () => {};
+  webApp.enableClosingConfirmation();
+  return () => webApp.disableClosingConfirmation?.();
 }

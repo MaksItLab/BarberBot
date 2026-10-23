@@ -19,7 +19,11 @@ public sealed class ShopExceptionHandler : IExceptionHandler
                 ShopFailureKind.KeyReused => (422, ShopErrorCodes.IdempotencyKeyReused),
                 _ => (500, ShopErrorCodes.InternalError)
             };
-            await Problem(context, status, failure.Message, code, failure.Current);
+            if (failure is { Kind: ShopFailureKind.Invalid, Field: { } field })
+                // ValidationProblemDetails: the title stays readable for older clients, errors point at the field.
+                await Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [failure.Message] },
+                    title: failure.Message, extensions: new Dictionary<string, object?> { ["code"] = code }).ExecuteAsync(context);
+            else await Problem(context, status, failure.Message, code, failure.Current);
             return true;
         }
         if (IsDatabaseUnavailable(exception))

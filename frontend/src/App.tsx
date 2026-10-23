@@ -77,7 +77,7 @@ export function App() {
     {catalogVisited && !isAdmin && <div hidden={Boolean(productId)}><Catalog search={location.search} onFilter={filter} onOpen={openProduct} /></div>}
     {productId && <ProductDetail key={productId} id={productId} onBack={back} />}
     {isAdmin && <section className="admin-section"><button className="text-button back-button" onClick={back}>← В каталог</button><p className="eyebrow">Рабочее пространство</p><h1>Управление магазином</h1>
-      {auth.user?.role === 'Admin' ? <AdminPanel /> : <p role="status">{auth.status === 'loading' ? 'Проверяем права…' : 'Управление доступно администратору при входе через Telegram.'}</p>}
+      {auth.user?.role === 'Admin' ? <AdminPanel telegramId={auth.user.telegramId} /> : <p role="status">{auth.status === 'loading' ? 'Проверяем права…' : 'Управление доступно администратору при входе через Telegram.'}</p>}
     </section>}
     <footer className="store-footer"><span>КОСМЕТИКА / ТВОЙ ВЫБОР</span><a href="#top" onClick={event => { event.preventDefault(); window.scrollTo({top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'}); }}>Наверх ↑</a></footer>
   </main>;
