@@ -98,6 +98,37 @@ public sealed class DiagnosticsHttpTests(PostgresFixture fixture) : IClassFixtur
         Assert.DoesNotContain("tma ", all);
     }
 
+    [Fact]
+    public async Task TransportRejectionLogsWhichProtocolTheTunnelSent()
+    {
+        var logs = new CapturingLoggerProvider();
+        await using var app = TestShopHost.Create(fixture, "Production", "127.0.0.1", builder => builder.Logging.AddProvider(logs));
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        async Task Send(string? proto)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/telegram");
+            request.Headers.Authorization = new AuthenticationHeaderValue("tma", TelegramValidationTests.Golden);
+            if (proto is not null) request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", proto);
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+        await Send(null);
+        await Send("http");
+        await Send("https, http"); // two proxy hops: only the last one is trusted
+        await Send("HTTP<script>\"=x");
+        await app.StopAsync();
+
+        var lines = logs.Messages.Where(line => line.StartsWith("Telegram HTTPS check failed", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(4, lines.Length);
+        Assert.Contains("scheme: http; forwarded protocol header: none; original protocol header: none.", lines[0]);
+        Assert.Contains("scheme: http; forwarded protocol header: none; original protocol header: http.", lines[1]);
+        Assert.Contains("scheme: http; forwarded protocol header: https; original protocol header: http.", lines[2]);
+        // Not a valid scheme: the proxy middleware leaves it unapplied; the log shows it reduced to scheme characters.
+        Assert.Contains("scheme: http; forwarded protocol header: httpscriptx; original protocol header: none.", lines[3]);
+        Assert.DoesNotContain(lines, line => line.Contains('<') || line.Contains("tma ") || line.Contains("2a720b9be302b994"));
+    }
+
     private static async Task<JsonElement> AssertProblem(HttpClient client, HttpMethod method, string url, string? initData,
         HttpStatusCode expectedStatus, string expectedCode, object? body = null)
     {
