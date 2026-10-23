@@ -1,9 +1,9 @@
 const assert = require('node:assert/strict');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {launch} = require('./browser.cjs');
 const base = process.env.SHOP_UI_URL || 'http://127.0.0.1:5173';
 const requestId = '4bf92f3577b34da6a3ce929d0e0e4736';
 (async () => {
- const browser=await chromium.launch({channel:'msedge',headless:true});
+ const browser=await launch();
  try {
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));

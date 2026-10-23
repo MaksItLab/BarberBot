@@ -1,10 +1,10 @@
 const assert = require('node:assert/strict');
-const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {launch} = require('./browser.cjs');
 const base = process.env.SHOP_UI_URL || 'http://127.0.0.1:5173';
 // R03: returning to the Mini App rechecks the login without resetting the open form;
 // a late answer never overrides a newer one; a network failure is not a lost role.
 (async () => {
- const browser=await chromium.launch({channel:'msedge',headless:true});
+ const browser=await launch();
  try {
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));

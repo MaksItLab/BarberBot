@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {launch} = require('./browser.cjs');
 const base = process.env.SHOP_UI_URL;
 const token = process.env.SHOP_E2E_TOKEN;
 if (!base || !token) throw new Error('Run scripts/test-e2e.ps1. A random test-only token and local database are required.');
@@ -12,7 +12,7 @@ function initData(id) {
   return new URLSearchParams({ auth_date: date, user, hash }).toString();
 }
 (async () => {
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const browser = await launch();
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const errors = []; page.on('pageerror', error => errors.push(error.message));

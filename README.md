@@ -24,7 +24,20 @@ Infrastructure, Api и Contracts. На публикации сервер отд�
 - Node.js 24 LTS и pnpm 11.25.0 (`npm install --global pnpm@11.25.0`).
 - Docker Desktop с запущенным Linux engine для PostgreSQL/Compose либо установленный PostgreSQL 18.
 
-Для браузерных автоматических проверок дополнительно нужны Edge и Playwright.
+Для браузерных автоматических проверок дополнительно нужны Edge и Playwright
+(`PLAYWRIGHT_CHANNEL=` с пустым значением — встроенный Chromium Playwright вместо Edge).
+
+### Весь регрессионный набор одной командой
+
+```powershell
+node scripts/test-all.cjs
+```
+
+Запускает серверные тесты (через `scripts/test-database.ps1`, если не задан
+`SHOP_TEST_ADMIN_CONNECTION`) и все браузерные наборы (Vite поднимается сам, если не
+задан `SHOP_UI_URL`). Итог и список непроверенного — в `artifacts/test-report.md`.
+Тот же набор выполняет GitHub Actions на каждый PR (`.github/workflows/tests.yml`).
+Проверки на настоящих устройствах записываются в [docs/device-protocol.md](docs/device-protocol.md).
 
 ## Локальная разработка
 

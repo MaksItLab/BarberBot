@@ -42,6 +42,7 @@
 | Тест перезагрузки адреса туннеля | Claude | [PR #10](https://github.com/MaksItLab/BarberBot/pull/10) | Завершена | 23.10.2026 |
 | R03 | Claude | [PR #11](https://github.com/MaksItLab/BarberBot/pull/11) | Завершена | 23.10.2026 |
 | R09, R10 (анализ) | Claude | [PR #12](https://github.com/MaksItLab/BarberBot/pull/12) | Завершена | 23.10.2026 |
+| R10 | Claude | `claude/r10-regression` | В работе | 23.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 

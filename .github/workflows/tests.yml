@@ -1,0 +1,59 @@
+# R10: the regression set on every pull request and on main. No secrets: tests use test-only tokens
+# and a throwaway PostgreSQL service; user databases are never touched.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      SHOP_TEST_ADMIN_CONNECTION: Host=127.0.0.1;Port=5432;Username=postgres;Password=ci-only-password;Timeout=5
+      PLAYWRIGHT_CHANNEL: ''
+      DOTNET_NOLOGO: 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Install pnpm and Playwright
+        run: |
+          npm install --global pnpm@11.25.0 playwright@1.56.1
+          playwright install --with-deps chromium
+          echo "PLAYWRIGHT_MODULE=$(npm root --global)/playwright" >> "$GITHUB_ENV"
+      - name: Restore
+        run: |
+          dotnet restore CosmeticsShop.slnx --locked-mode
+          pnpm --dir frontend install --frozen-lockfile
+      - name: Type check and build the frontend
+        run: pnpm --dir frontend build
+      - name: Regression set
+        run: node scripts/test-all.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: artifacts/test-report.md
+          if-no-files-found: ignore
