@@ -56,7 +56,7 @@ export function AdminReferences() {
       {tab === 'brands' && <label>Описание бренда<textarea aria-label="Описание бренда" maxLength={4000} value={description} onChange={event => setDescription(event.target.value)} disabled={saving} /></label>}
       <div className="form-actions"><button disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить'}</button>
         {id && <button type="button" className="text-button" disabled={saving} onClick={reset}>Отменить</button>}</div>
-      {message && <p role="status">{message}</p>}
+      <p role="status" className="form-status">{message}</p>{/* always present: a region inserted with its text is often not announced */}
     </form>
     {status === 'loading' ? <p role="status">Загружаем справочники…</p> : status === 'error'
       ? <div role="alert"><p>Не удалось загрузить справочники.</p><button onClick={() => setAttempt(value => value + 1)}>Повторить</button></div>
