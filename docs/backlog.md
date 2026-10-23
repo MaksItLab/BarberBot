@@ -39,6 +39,8 @@
 | R05, U02 | Claude | [PR #6](https://github.com/MaksItLab/BarberBot/pull/6) → #5 | Завершена | 23.10.2026 |
 | R07 | Claude | [PR #7](https://github.com/MaksItLab/BarberBot/pull/7) | Завершена | 23.10.2026 |
 | R06, U03 | Claude | [PR #9](https://github.com/MaksItLab/BarberBot/pull/9) | Завершена | 23.10.2026 |
+| Тест перезагрузки адреса туннеля | Claude | [PR #10](https://github.com/MaksItLab/BarberBot/pull/10) | Завершена | 23.10.2026 |
+| R03 | Claude | [PR #11](https://github.com/MaksItLab/BarberBot/pull/11) | Завершена | 23.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 
