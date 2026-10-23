@@ -1,0 +1,9 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	# Caddy replaces client-supplied X-Forwarded-* headers and sets X-Forwarded-Proto itself.
+	reverse_proxy app:8080
+}

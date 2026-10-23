@@ -11,6 +11,7 @@ Infrastructure, Api и Contracts. На публикации сервер отд�
 Учёт и показ остатков отложены.
 Результаты проверок: [verification.md](docs/verification.md).
 Завершение настоящего запуска: [launch-checklist.md](docs/launch-checklist.md).
+Постоянное размещение на VPS с HTTPS: [deployment.md](docs/deployment.md).
 Продуктовый backlog: [надёжность, UI/UX и развитие](docs/backlog.md).
 
 Архитектура сервера — слоистый монолит с организацией по фичам и Minimal API.
