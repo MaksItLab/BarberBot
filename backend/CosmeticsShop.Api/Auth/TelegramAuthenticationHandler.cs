@@ -30,10 +30,12 @@ public sealed class TelegramAuthenticationHandler(
         if (!Request.IsHttps && !environment.IsDevelopment())
         {
             Context.Items[FailureCode] = ShopErrorCodes.SecureTransportUnavailable;
-            // Record only transport flags; never log authorization data or user addresses.
-            Logger.LogWarning("Telegram HTTPS check failed. Loopback: {Loopback}; forwarded protocol header: {Forwarded}; original protocol header: {Original}.",
+            // Record only transport facts: the scheme the request ended with and the protocol headers, reduced to scheme
+            // characters. Never log authorization data or user addresses.
+            Logger.LogWarning("Telegram HTTPS check failed. Loopback: {Loopback}; scheme: {Scheme}; forwarded protocol header: {Forwarded}; original protocol header: {Original}.",
                 Context.Connection.RemoteIpAddress is { } remote && System.Net.IPAddress.IsLoopback(remote),
-                Request.Headers.ContainsKey("X-Forwarded-Proto"), Request.Headers.ContainsKey("X-Original-Proto"));
+                SchemeText(Request.Scheme), SchemeText(Request.Headers["X-Forwarded-Proto"].ToString()),
+                SchemeText(Request.Headers["X-Original-Proto"].ToString()));
             return AuthenticateResult.Fail("Invalid Telegram authentication.");
         }
         if (header.Count != 1
@@ -46,6 +48,14 @@ public sealed class TelegramAuthenticationHandler(
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, telegramId.ToString(CultureInfo.InvariantCulture)) };
         if (user is not null) claims.Add(new Claim(ClaimTypes.Role, user.Role));
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName)), SchemeName));
+    }
+
+    /// <summary>A header value as at most 40 lower-case scheme characters, commas and spaces; "none" when absent.</summary>
+    private static string SchemeText(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "none";
+        var kept = new string(value.ToLowerInvariant().Where(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or ',' or ' ' or '-' or '+' or '.').Take(40).ToArray());
+        return kept.Length == 0 ? "other" : kept;
     }
 
     private AuthenticateResult Fail(string code)
