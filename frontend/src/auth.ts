@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError, authorizedJson } from './api';
-import { getTelegramInitData } from './telegram';
+import { getTelegramInitData, onReturn } from './telegram';
 
 export type CurrentUser = { telegramId: string; role: 'Customer' | 'Admin' };
 
@@ -11,12 +11,14 @@ export function useTelegramUser() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let controller = new AbortController();
-    function initialize() {
+    /** `quiet`: a recheck on return to the app keeps the current screen (and any open form) until the answer. */
+    function initialize(quiet = false) {
+      // Aborting the previous check means its late answer can never overwrite a newer one.
       controller.abort();
       controller = new AbortController();
       if (!getTelegramInitData()) { setUser(null); setStatus('guest'); return; }
       const active = controller;
-      setStatus('loading');
+      if (!quiet) setStatus('loading');
       authorizedJson<CurrentUser>('/api/auth/telegram', 'POST', undefined, active.signal).then(value => {
         if (!active.signal.aborted) { setUser(value); setError(null); setStatus('ready'); }
       }).catch(error => {
@@ -32,12 +34,18 @@ export function useTelegramUser() {
     }
     const expired = () => { setUser(null); setStatus('expired'); };
     const forbidden = () => { setUser(null); setStatus('forbidden'); };
-    initialize();
-    window.addEventListener('load', initialize);
+    const load = () => initialize();
+    let stopReturn = () => {};
+    // The SDK script is async: listen for the return once it has loaded, and again after 'load'.
+    const listenReturn = () => { stopReturn(); stopReturn = onReturn(() => initialize(true)); };
+    initialize(); listenReturn();
+    window.addEventListener('load', load);
+    window.addEventListener('load', listenReturn);
     window.addEventListener('telegram-auth-expired', expired);
     window.addEventListener('telegram-access-denied', forbidden);
     return () => {
-      controller.abort(); window.removeEventListener('load', initialize);
+      controller.abort(); stopReturn();
+      window.removeEventListener('load', load); window.removeEventListener('load', listenReturn);
       window.removeEventListener('telegram-auth-expired', expired);
       window.removeEventListener('telegram-access-denied', forbidden);
     };

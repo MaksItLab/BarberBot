@@ -16,8 +16,8 @@ type TelegramWebApp = {
   expand: () => void;
   colorScheme: 'light' | 'dark';
   BackButton?: { show: () => void; hide: () => void; onClick: (callback: () => void) => void; offClick: (callback: () => void) => void };
-  onEvent: (event: 'themeChanged', callback: () => void) => void;
-  offEvent: (event: 'themeChanged', callback: () => void) => void;
+  onEvent: (event: 'themeChanged' | 'activated', callback: () => void) => void;
+  offEvent: (event: 'themeChanged' | 'activated', callback: () => void) => void;
 };
 
 declare global {
@@ -62,4 +62,19 @@ export function confirmClosing(): () => void {
   if (!webApp?.enableClosingConfirmation || !webApp.isVersionAtLeast?.('6.2')) return () => {};
   webApp.enableClosingConfirmation();
   return () => webApp.disableClosingConfirmation?.();
+}
+
+/**
+ * Calls back when the user returns to the Mini App: Telegram's `activated` (Bot API 8.0+),
+ * otherwise the page becoming visible again. Returns the undo.
+ */
+export function onReturn(callback: () => void): () => void {
+  const webApp = window.Telegram?.WebApp;
+  if (webApp?.isVersionAtLeast?.('8.0')) {
+    webApp.onEvent('activated', callback);
+    return () => webApp.offEvent('activated', callback);
+  }
+  const visible = () => { if (document.visibilityState === 'visible') callback(); };
+  document.addEventListener('visibilitychange', visible);
+  return () => document.removeEventListener('visibilitychange', visible);
 }
