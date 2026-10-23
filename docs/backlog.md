@@ -46,6 +46,7 @@
 | R09 (локальная часть) | Claude | [PR #14](https://github.com/MaksItLab/BarberBot/pull/14) | Завершена | 23.10.2026 |
 | U01, U04–U07 (анализ) | Claude | [PR #15](https://github.com/MaksItLab/BarberBot/pull/15) | Завершена | 23.10.2026 |
 | U01 | Claude | [PR #16](https://github.com/MaksItLab/BarberBot/pull/16) | Завершена | 23.10.2026 |
+| U07 | Claude | `claude/u07-navigation` | Завершена | 23.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 

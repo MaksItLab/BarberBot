@@ -62,5 +62,16 @@ export async function loadReferences(signal?: AbortSignal): Promise<CatalogRefer
   return loaded;
 }
 
-/** After an admin save: the next catalog view loads references again. */
-export function invalidateCatalog() { references = undefined; generation++; }
+const listeners = new Set<() => void>();
+
+/** Calls back after an admin save changed the catalog. Returns the undo. */
+export function onCatalogChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+/** After an admin save: references load again and the catalog view starts afresh. */
+export function invalidateCatalog() {
+  references = undefined; generation++;
+  listeners.forEach(listener => listener());
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatPrice, localImage } from './api';
 import { loadReferences, sharedGet } from './catalogApi';
 import type { CatalogOption, ProductPage, ProductSummary } from './api';
@@ -7,6 +7,8 @@ type ProductsState = {
   items: ProductSummary[]; hasMore: boolean; page: number; status: 'loading' | 'ready' | 'error'; moreError: boolean;
 };
 type ReferencesState = { brands: CatalogOption[]; types: CatalogOption[]; status: 'loading' | 'ready' | 'error' };
+/** U07: what the catalog's history entry remembers, to rebuild the list after a reload. */
+export type CatalogRestore = { scroll: number; pages: number };
 const noProducts: ProductsState = { items: [], hasMore: false, page: 1, status: 'loading', moreError: false };
 
 export function ProductImage({ path, name }: { path: string | null; name: string }) {
@@ -21,7 +23,10 @@ export function ProductImage({ path, name }: { path: string | null; name: string
       <span className="placeholder-caption">Иллюстрация</span></div>}</div>;
 }
 
-export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter: (value: string) => void; onOpen: (id: string) => void }) {
+export function Catalog({ search, active, restore, onPages, onFilter, onOpen }: {
+  search: string; active: boolean; restore: CatalogRestore | null; onPages: (pages: number) => void;
+  onFilter: (value: string) => void; onOpen: (id: string) => void;
+}) {
   const params = new URLSearchParams(search);
   const brandId = params.get('brandId') ?? '';
   const typeId = params.get('typeId') ?? '';
@@ -36,6 +41,16 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
   const [loadingMore, setLoadingMore] = useState(false);
   const moreRequest = useRef<AbortController | null>(null);
   const requestKey = useRef('');
+  // Taken at mount and used by the first load only; cleared when applied, so a re-run effect still sees it.
+  const restoreRef = useRef(restore && { ...restore, key });
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const [pendingScroll, setPendingScroll] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (pendingScroll === null) return;
+    if (activeRef.current) window.scrollTo(0, pendingScroll);
+    setPendingScroll(null);
+  }, [pendingScroll]);
 
   // U01: products of the current filter. The previous list stays on screen, marked, until the new answer;
   // an answer for an earlier filter is dropped because its request is aborted first.
@@ -45,13 +60,27 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
     moreRequest.current?.abort();
     setLoadingMore(false);
     setState(previous => ({ ...previous, status: 'loading', moreError: false }));
-    sharedGet<ProductPage>(`/api/catalog/products?${key}`, controller.signal).then(page => {
-      if (!controller.signal.aborted) setState({ ...page, status: 'ready', moreError: false });
+    const wanted = restoreRef.current?.key === key ? restoreRef.current : null;
+    (async () => {
+      let page = await sharedGet<ProductPage>(`/api/catalog/products?${key}`, controller.signal);
+      let items = page.items;
+      // After a reload: the pages loaded before, one after another; a failure keeps what has arrived.
+      for (let number = 2; wanted && number <= wanted.pages && page.hasMore; number++) {
+        try { page = await sharedGet<ProductPage>(`/api/catalog/products?${key}&page=${number}`, controller.signal); }
+        catch (error) { if (controller.signal.aborted) throw error; break; }
+        items = [...items, ...page.items];
+      }
+      return { ...page, items };
+    })().then(page => {
+      if (controller.signal.aborted) return;
+      setState({ ...page, status: 'ready', moreError: false });
+      onPages(page.page);
+      if (wanted) { restoreRef.current = null; setPendingScroll(wanted.scroll); }
     }).catch(() => {
       if (!controller.signal.aborted) setState(previous => ({ ...previous, status: 'error' }));
     });
     return () => { controller.abort(); moreRequest.current?.abort(); };
-  }, [key, attempt]);
+  }, [key, attempt]); // eslint-disable-line react-hooks/exhaustive-deps -- onPages only writes the history entry
 
   // Brands and types, independent of products: their failure never hides the catalog.
   useEffect(() => {
@@ -81,6 +110,7 @@ export function Catalog({ search, onFilter, onOpen }: { search: string; onFilter
       const page = await sharedGet<ProductPage>(`/api/catalog/products?${key}&page=${state.page + 1}`, controller.signal);
       if (!controller.signal.aborted && requestKey.current === key) {
         setState(previous => ({ ...previous, items: [...previous.items, ...page.items], page: page.page, hasMore: page.hasMore }));
+        onPages(page.page);
       }
     } catch {
       if (!controller.signal.aborted) setState(previous => ({ ...previous, moreError: true }));
