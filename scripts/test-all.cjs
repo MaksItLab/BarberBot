@@ -1,8 +1,10 @@
 // R10: the whole automatic regression set in one run, with a report that names what it does not check.
-// Usage: node scripts/test-all.cjs [--skip-server] [--skip-browser]
+// Usage: node scripts/test-all.cjs [--skip-server] [--skip-browser] [--skip-backup]
 //   Server tests need SHOP_TEST_ADMIN_CONNECTION (a separate test PostgreSQL); on Windows without it
 //   scripts/test-database.ps1 starts one. Browser suites use SHOP_UI_URL, or a Vite dev server started here.
 //   PLAYWRIGHT_CHANNEL: msedge by default; empty for Playwright's own Chromium.
+//   The backup check (R09) needs PostgreSQL 18 client tools (PG_BIN or PATH) and SHOP_TEST_ADMIN_CONNECTION;
+//   without them it is skipped with the reason, except in CI, where that is a failure.
 const {spawn} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -27,6 +29,8 @@ function run(command, commandArgs, {timeoutMs, env = {}, cwd = root} = {}) {
 }
 
 const lastLine = text => text.trim().split(/\r?\n/).filter(Boolean).at(-1) ?? '';
+/** The first error line of a failed suite; the last line of a Node stack is only its version. */
+const failureLine = text => (text.match(/^\s*(?:\w*Error\b|FAIL\b).*$/m)?.[0] ?? lastLine(text)).trim().slice(0, 300);
 
 async function serverTests() {
   if (args.has('--skip-server')) return results.push({name: 'Серверные тесты', status: 'SKIP', detail: '--skip-server'});
@@ -39,6 +43,19 @@ async function serverTests() {
   const failures = [...result.output.matchAll(/^\s*Failed (\S+) \[/gm)].map(match => match[1]);
   results.push({name: 'Серверные тесты', status: result.code === 0 ? 'PASS' : 'FAIL', seconds: result.seconds,
     detail: [summary ?? lastLine(result.output), ...failures].join('; ')});
+}
+
+async function backupTests() {
+  const name = 'Резервная копия (R09)';
+  if (args.has('--skip-backup')) return results.push({name, status: 'SKIP', detail: '--skip-backup'});
+  const missing = reason => results.push({name, status: process.env.CI ? 'FAIL' : 'SKIP', detail: reason});
+  if (!process.env.SHOP_TEST_ADMIN_CONNECTION) return missing('Нет SHOP_TEST_ADMIN_CONNECTION: отдельного тестового PostgreSQL.');
+  const pgBin = process.env.PG_BIN ?? (isWindows ? 'C:\\Program Files\\PostgreSQL\\18\\bin' : '');
+  const version = await run(pgBin ? path.join(pgBin, 'pg_dump') : 'pg_dump', ['--version'], {timeoutMs: 30_000});
+  if (version.code !== 0 || !/\s18\./.test(version.output)) return missing(`Нужен pg_dump 18 (PG_BIN или PATH): ${lastLine(version.output).slice(0, 200)}`);
+  const result = await run(process.execPath, ['tests/backup/database-backup.test.cjs'], {timeoutMs: 10 * 60_000});
+  const passed = result.code === 0 && /^PASS:/m.test(result.output);
+  results.push({name, status: passed ? 'PASS' : 'FAIL', seconds: result.seconds, detail: passed ? '' : failureLine(result.output)});
 }
 
 async function waitFor(url, timeoutMs) {
@@ -66,10 +83,10 @@ async function browserSuites() {
     const suites = fs.readdirSync(path.join(root, 'tests/frontend'))
       .filter(name => name.endsWith('.cjs') && !['browser.cjs', 'e2e.cjs'].includes(name)).sort();
     for (const suite of suites) {
-      const result = await run('node', [path.join('tests/frontend', suite)], {timeoutMs: 5 * 60_000, env: {SHOP_UI_URL: base}});
+      const result = await run(process.execPath, [path.join('tests/frontend', suite)], {timeoutMs: 5 * 60_000, env: {SHOP_UI_URL: base}});
       const passed = result.code === 0 && /^PASS:/m.test(result.output);
       results.push({name: suite, status: passed ? 'PASS' : 'FAIL', seconds: result.seconds,
-        detail: passed ? '' : lastLine(result.output).slice(0, 300)});
+        detail: passed ? '' : failureLine(result.output)});
     }
   } finally { server?.kill(); }
 }
@@ -94,6 +111,7 @@ function report(totalSeconds) {
   const started = Date.now();
   fs.mkdirSync(path.join(root, 'artifacts'), {recursive: true}); // suites save screenshots there
   await serverTests();
+  await backupTests();
   await browserSuites();
   report((Date.now() - started) / 1000);
   process.exitCode = results.some(value => value.status === 'FAIL') ? 1 : 0;

@@ -35,7 +35,8 @@ node scripts/test-all.cjs
 
 Запускает серверные тесты (через `scripts/test-database.ps1`, если не задан
 `SHOP_TEST_ADMIN_CONNECTION`) и все браузерные наборы (Vite поднимается сам, если не
-задан `SHOP_UI_URL`). Итог и список непроверенного — в `artifacts/test-report.md`.
+задан `SHOP_UI_URL`), а также проверку резервной копии (нужен PostgreSQL 18, см.
+[docs/backup.md](docs/backup.md)). Итог и список непроверенного — в `artifacts/test-report.md`.
 Тот же набор выполняет GitHub Actions на каждый PR (`.github/workflows/tests.yml`).
 Проверки на настоящих устройствах записываются в [docs/device-protocol.md](docs/device-protocol.md).
 
