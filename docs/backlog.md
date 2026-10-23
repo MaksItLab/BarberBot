@@ -48,6 +48,7 @@
 | U01 | Claude | [PR #16](https://github.com/MaksItLab/BarberBot/pull/16) | Завершена | 23.10.2026 |
 | U07 | Claude | [PR #17](https://github.com/MaksItLab/BarberBot/pull/17) | Завершена | 23.10.2026 |
 | U06 | Claude | [PR #18](https://github.com/MaksItLab/BarberBot/pull/18) | Завершена | 23.10.2026 |
+| U04 (лабораторная часть) | Claude | PR U04 | Завершена; приёмка на устройствах ждёт | 23.10.2026 |
 
 ## Что уже есть и что пока неизвестно
 
