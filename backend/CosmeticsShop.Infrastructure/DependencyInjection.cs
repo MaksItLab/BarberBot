@@ -44,11 +44,12 @@ public static class DependencyInjection
             .Validate(options => !options.Enabled ||
                 (Uri.TryCreate(options.MiniAppUrl, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps),
                 "Telegram:MiniAppUrl must be a public HTTPS URL when the bot is enabled.")
+            .Validate(options => TelegramHttp.IsValidProxyUrl(options.ProxyUrl), TelegramHttp.ProxyUrlError)
             .ValidateOnStart();
         services.AddHostedService(provider => new TelegramBotWorker(
             provider.GetRequiredService<IOptionsMonitor<TelegramOptions>>(),
             provider.GetRequiredService<ILogger<TelegramBotWorker>>(),
-            new HttpClient { Timeout = TimeSpan.FromSeconds(45) }));
+            TelegramHttp.CreateClient(provider.GetRequiredService<IOptions<TelegramOptions>>().Value)));
         return services;
     }
 }
