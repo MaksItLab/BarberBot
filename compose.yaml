@@ -24,9 +24,13 @@ services:
       Telegram__Enabled: ${TELEGRAM_ENABLED:-false}
       Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
       Telegram__MiniAppUrl: ${TELEGRAM_MINI_APP_URL:-}
+      Telegram__ProxyUrl: ${TELEGRAM_PROXY_URL:-}
       ReverseProxy__KnownProxy: ${TRUSTED_PROXY_IP:-}
     ports:
       - "127.0.0.1:8080:8080"
+    # Lets the app reach a VPN client running on the host (docs/telegram-proxy.md).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
