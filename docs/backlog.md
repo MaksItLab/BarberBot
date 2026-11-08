@@ -52,7 +52,7 @@
 | U05 (лабораторная часть) | Claude | [PR #20](https://github.com/MaksItLab/BarberBot/pull/20) | Завершена; профиль на телефоне ждёт | 23.10.2026 |
 | Журнал протокола туннеля | Claude | [PR #21](https://github.com/MaksItLab/BarberBot/pull/21) | Завершена | 23.10.2026 |
 | Пул 2: R11–R17, U08–U11 (составление) | Claude | [PR #23](https://github.com/MaksItLab/BarberBot/pull/23) | Завершена | 26.10.2026 |
-| Прокси для Telegram API на сервере в РФ ([telegram-proxy.md](telegram-proxy.md)) | Claude | `claude/project-thread-68zdhb` | Ревью | 08.11.2026 |
+| Прокси для Telegram API на сервере в РФ ([telegram-proxy.md](telegram-proxy.md)) | Claude | [PR #24](https://github.com/MaksItLab/BarberBot/pull/24) | Завершена; проверка на VPS ждёт | 08.11.2026 |
 
 ## Что уже есть и что пока неизвестно
 
